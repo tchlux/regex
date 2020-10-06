@@ -112,57 +112,10 @@ def match(regex, string):
             else: err += "."
             raise(RegexError(err))
 
-# Append the documentation from "regex.c" to the documentation for this module.
-with open(os.path.join(os.path.dirname(__file__),"regex.c")) as f:
-    source_file = f.read()
-    start, end = match("^/.*\n{/}", source_file)
-    __doc__ += source_file[start+3:end].replace("\n//", "\n")
-    del(source_file, start, end)
-del(f)
-
-
-# Function for running hand-crafted tests.
-def test():
-    # regex  = "^[*][*]*{[*]}"
-    # string = "*** test"
-
-    # # Find any "**" patterns.
-    # regex  = "{[*]}[*][*]{[*]}"
-    # string = "ab*  **"
-
-    # Find any "**" patterns.
-    regex  = "^aa*{a}"   # <- find most 'a' at beginning
-    # regex  = "{a}aa**" # <- find most 'a' in middle
-    string = "aaa  "
-
-    # regex  = "^((\r\n)|\r|\n)"
-    # string = ""
-    # string = ''' Testing 
-    # long multiplie line string,
-    # does it work? '''
-
-    # regex = "\n.*{[}]}abc" # <- this should not match the regex on this file
-    # with open(__file__) as f:
-    #     string = f.read()
-    # abc <- this will match the test regular expression
-
-    # Run the regex on the string.
-    # string = string[4280:4280+150]
-    result = match(regex, string)
-    if (result is not None):
-        start, end = result
-        print(f"Match at {start} -> {end}: {str([string[start:end]])[1:-1]}")
-    else:
-        print("No match.")
-
-
-# When using "from regex import *", only get these variables:
-__all__ = [RegexError, match]
-
 # Do a fast regular expression search over files that match a given
 # pattern. Find all nonoverlapping matches in the files and print
 # all matching patterns, their files, and their locations.
-def frex(regex, path_patterns, curdir=".", skip=None):
+def frex(regex, *path_patterns, curdir=".", skip=None):
     # Initialize the list of paths to skip..
     if (skip is None): skip = set()
     # Initialize a list of directories to recurse into.
@@ -187,13 +140,13 @@ def frex(regex, path_patterns, curdir=".", skip=None):
                 file_string = f.read()
                 loc = match(regex, file_string)
                 if (loc is None): continue
-                print("_"*(len(path)+4))
-                print(" ",path)
+                print("_"*70)
+                print(" "*int(70/2 - len(path)/2), path)
                 print()
                 while (loc is not None):
                     # Process the strings to get the match.
                     start, end = loc
-                    file_start = file_string[:start-1]
+                    file_start = file_string[:start]
                     match_string = file_string[start:end]
                     file_end = file_string[end:]
                     # Get the first new line before and after the match.
@@ -202,26 +155,42 @@ def frex(regex, path_patterns, curdir=".", skip=None):
                     match_line_string = file_string[start-nearest_new_line-1:end+next_new_line]
                     # Print the line number, accumulate line count, look for next match.
                     lines += file_start.count("\n")
-                    print("Line", lines)
-                    print("",match_line_string)
-                    print()
+                    print(f"{lines}:", str([match_line_string.strip()])[2:-2])
                     lines += match_string.count("\n")
                     file_string = file_end
                     loc = match(regex, file_string)
     # Recurse into all directories.
     for path in directories:
-        frex(regex, path_patterns, curdir=path, skip=skip)
+        frex(regex, *path_patterns, curdir=path, skip=skip)
 
-    pass
+# Append the documentation from "regex.c" to the documentation for this module.
+with open(os.path.join(os.path.dirname(__file__),"regex.c")) as f:
+    source_file = f.read()
+    start, end = match("^/.*\n{/}", source_file)
+    __doc__ += source_file[start+3:end].replace("\n//", "\n")
+    del(source_file, start, end)
+del(f)
+
+# When using "from regex import *", only get these variables:
+__all__ = [RegexError, match, frex]
 
 # Main for when this is executed as a program.
 if __name__ == "__main__":
     import sys
+    if (len(sys.argv) <= 2):
+        print()
+        print("ERROR: Only",len(sys.argv),"command line argument(s) provided.")
+        print()
+        print("Expected at least 3 after python:")
+        print("  python3 regex.py \"<search-pattern>\" \"<path-pattern-1>\" [\"<path-pattern-2>\"] [...]")
+        print()
+        print("Documentation for this module follows.")
+        print()
+        print(__doc__)
+        exit()
     regex = sys.argv[1]
-    print()
     print("Using regex:",str([regex])[1:-1])
     path_patterns = sys.argv[2:]
     curdir = os.path.abspath(os.path.curdir)
     # Do a fast regular expression search.
-    frex(regex, path_patterns, curdir)
-
+    frex(regex, *path_patterns, curdir)

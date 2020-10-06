@@ -62,6 +62,7 @@
 //  Match this entire documentation block in this C file.
 //    "/.*\n{/}"
 // 
+//
 // NOTES:
 // 
 //  A more verbose format is required to match common character
@@ -86,30 +87,31 @@
 //
 // DEVELOPMENT:
 // 
+//  Write a function that accepts a path and searches for all
+//  nonoverlapping matches in that path, printing out results.
+//  Use this as the main executable for this C program.
+// 
 //  Write `matchl` that returns the *longest* match discovered.
 //   Could this be done by replacing all "t*" with "t*{t}"?
 // 
-//  Support '**' syntax to make the '*' greedy.
-//   Will implementing a greedy search require backtracking?
-// 
-//  Returning allocated memory:
-//   Write `matchn` that returns *nonoverlapping* matches in arrays.
-//    this could be done with repeated calls to matchs, 
-//    starting after the most recent match
-//   Write `matcha` that returns *all* starts and ends of matches in arrays.
-//    this could be approximated with repeated calls to matchs,
-//    subtracting out each match from the string by shifting contents,
-//    however this will not get 
-//   Write `randre` that generates a random string that matches the
-//    given regular expression, tile the space of matches so that
-//    all the shortest matches come first, then longer ones
+//  Write `randre` that generates a random string that matches the
+//   given regular expression, tile the space of matches so that
+//   all the shortest matches come first, then longer ones
 //    
+//  Write `matchn` that returns *nonoverlapping* matches in arrays.
+//   this could be done with repeated calls to matchs, 
+//   starting after the most recent match
 // 
-//  Uncomment the line "#define DEBUG" and recompile to enable debugging.
+//  Write `matcha` that returns *all* starts and ends of matches in arrays.
+//   this could be approximated with repeated calls to matchs,
+//   subtracting out each match from the string by shifting contents,
+//   however this will not get 
 // 
+//  Uncomment the line "#define DEBUG" and recompile to enable 
+//  debugging and run built-in tests.
 // ___________________________________________________________________
-
-#define DEBUG
+// 
+// #define DEBUG
 
 #include <stdio.h>  // printf
 #include <stdlib.h> // malloc, free
