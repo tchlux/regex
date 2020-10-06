@@ -1,0 +1,1 @@
+A fast regular expression matcher written in C and accessible from Python3.
