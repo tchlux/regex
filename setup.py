@@ -54,23 +54,13 @@ if __name__ == "__main__":
         license='MIT',
         classifiers=classifiers
     )
-    # Attempt to import the module, in case compilation must be
-    # done. It is in a try block with an empty catch-all except. THIS
-    # IS BAD PRACTICE, but it is possible that the issues are more
-    # easily fixed after install. Consider modifying this block for
-    # each project to be less all-encompassing.
-    try:
-        # Import the setup file.
-        import importlib
-        importlib.import_module(package+".setup")
-    except: pass
 
 # 
 # Install specific versions of a package with something like:
 # 
-#   pip install https://github.com/tchlux/packager/archive/1.0.0.zip
+#   pip install https://github.com/tchlux/regex/archive/1.0.0.zip
 # 
 # Include external requirements in a `requirements.txt` file like:
 #  
-#   packager @ https://github.com/tchlux/packager/archive/1.0.0.zip @ 1.0.0
+#   regex @ https://github.com/tchlux/regex/archive/1.0.0.zip @ 1.0.0
 # 

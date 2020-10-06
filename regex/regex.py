@@ -10,7 +10,16 @@
 
 ''' 
 
-import os, ctypes
+# Get the version number from the setup file
+import os
+
+DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+ABOUT_DIR = os.path.join(DIRECTORY, "about")
+with open(os.path.join(ABOUT_DIR,"version.txt")) as f:
+    __version__ = f.read().strip()
+
+# Import ctypes for loading the underlying C regex library.
+import ctypes
 
 # --------------------------------------------------------------------
 clib_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "regex.so")
@@ -59,9 +68,10 @@ class RegexError(Exception): pass
 #  - If no "^" is placed at the beginning of "regex", then ".*" will
 #    be appened to the beginning of "regex" to behave like other 
 #    regular expression libraries.
+#  - If "$" is the last character of "regex", it will be substituted
+#    with "{.}", the appropriate pattern for end-of-string matches.
 # 
 def match(regex, string):
-    greedy = None
     # Do substitutions that make the underlying regex implementation
     # behave more like common existing regex packages.
     if (len(regex) > 0):
@@ -69,14 +79,9 @@ def match(regex, string):
         # string was not explicitly desired in the match pattern.
         if (regex[0] == "^"): regex = regex[1:]
         elif ((regex[0] != ".") or (regex[1] != '*')): regex = ".*" + regex
-        # Replace any "**" with greedy matches that incorporate a
-        # negation after the preceding token.
-        if ("**" in regex):
-            i = regex.index("**")
-            greedy = regex[i-1]
-            if ((i > 0) and (greedy not in {')', ']', '}'})):
-                regex = regex[:i] + f"*{{{greedy}}}" + regex[i+2:]
-            print("regex:", str([regex])[1:-1])
+        # Add a "{.}" to the end of the regex if the end of the string
+        # was explicitly requested in the pattern.
+        if (regex[-1] == "$"): regex = regex[:-1] + "{.}"
 
     # Call the C utillity.
     #   initialize memory storage for the start and end of a match
@@ -91,17 +96,14 @@ def match(regex, string):
     start = start.contents.value
     end = end.contents.value
 
-    # TODO: only allow the last token to be greedy
-    # TODO: remove the extra character that may have been added by "greedy"
-
-    # Return appropriately.
+    # Return appropriately (handling error flags).
     if (start >= 0): return (start, end)
     elif (start < 0):
         if (end == 0): return None # no match found
         elif (end == -1): return (0, 0) # empty regular expression
         elif ((start == -1) and (end == -5)): return None  # empty string
         elif (end < -1): # error code provided by C
-            err = f"Invalid regular expression (code {-end} {start})"
+            err = f"Invalid regular expression (code {-end})"
             if (start < -1):
                 start -= sum(1 for c in regex if c in "\n\t\r\0")
                 err += f", error at position {-start-1}.\n"
@@ -118,9 +120,9 @@ with open(os.path.join(os.path.dirname(__file__),"regex.c")) as f:
     del(source_file, start, end)
 del(f)
 
-# Main for verification that it is working.
-if __name__ == "__main__":
 
+# Function for running hand-crafted tests.
+def test():
     # regex  = "^[*][*]*{[*]}"
     # string = "*** test"
 
@@ -129,7 +131,7 @@ if __name__ == "__main__":
     # string = "ab*  **"
 
     # Find any "**" patterns.
-    regex  = "^aa**"   # <- find most 'a' at beginning
+    regex  = "^aa*{a}"   # <- find most 'a' at beginning
     # regex  = "{a}aa**" # <- find most 'a' in middle
     string = "aaa  "
 
@@ -152,3 +154,74 @@ if __name__ == "__main__":
         print(f"Match at {start} -> {end}: {str([string[start:end]])[1:-1]}")
     else:
         print("No match.")
+
+
+# When using "from regex import *", only get these variables:
+__all__ = [RegexError, match]
+
+# Do a fast regular expression search over files that match a given
+# pattern. Find all nonoverlapping matches in the files and print
+# all matching patterns, their files, and their locations.
+def frex(regex, path_patterns, curdir=".", skip=None):
+    # Initialize the list of paths to skip..
+    if (skip is None): skip = set()
+    # Initialize a list of directories to recurse into.
+    directories = []
+    # Check all paths in the current directory.
+    for path in os.listdir(curdir):
+        path = os.path.join(curdir, path)
+        # If this is a directory, mark it to be searched later.
+        if os.path.isdir(path):
+            directories.append(path)
+            continue
+        # Look to see if this file path matches a path pattern.
+        for pattern in path_patterns:
+            if (match(pattern, path) is not None): break
+        # If no matches were found, skip this path.
+        else: continue
+        # Otherwise, if this is a file then search it!
+        if (os.path.isfile(path) and (path not in skip)):
+            skip.add(path) # mark this path to not be checked again
+            with open(path) as f:
+                lines = 1
+                file_string = f.read()
+                loc = match(regex, file_string)
+                if (loc is None): continue
+                print("_"*(len(path)+4))
+                print(" ",path)
+                print()
+                while (loc is not None):
+                    # Process the strings to get the match.
+                    start, end = loc
+                    file_start = file_string[:start-1]
+                    match_string = file_string[start:end]
+                    file_end = file_string[end:]
+                    # Get the first new line before and after the match.
+                    nearest_new_line = ("\n"+file_start)[::-1].index("\n")
+                    next_new_line = (file_end+"\n").index("\n")
+                    match_line_string = file_string[start-nearest_new_line-1:end+next_new_line]
+                    # Print the line number, accumulate line count, look for next match.
+                    lines += file_start.count("\n")
+                    print("Line", lines)
+                    print("",match_line_string)
+                    print()
+                    lines += match_string.count("\n")
+                    file_string = file_end
+                    loc = match(regex, file_string)
+    # Recurse into all directories.
+    for path in directories:
+        frex(regex, path_patterns, curdir=path, skip=skip)
+
+    pass
+
+# Main for when this is executed as a program.
+if __name__ == "__main__":
+    import sys
+    regex = sys.argv[1]
+    print()
+    print("Using regex:",str([regex])[1:-1])
+    path_patterns = sys.argv[2:]
+    curdir = os.path.abspath(os.path.curdir)
+    # Do a fast regular expression search.
+    frex(regex, path_patterns, curdir)
+

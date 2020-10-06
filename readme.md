@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">regex</h1>
+  <h1 align="center"><code>regex</code></h1>
 </p>
 
 <p align="center">
@@ -9,7 +9,7 @@ A fast regular expression matcher written in C and accessible from Python3.
 
 ## INSTALLATION:
 
-  Install the latest stable release with:
+  Install the latest stable release to Python with:
 
 ```bash
 pip install https://github.com/tchlux/regex/archive/1.0.0.zip
@@ -21,6 +21,9 @@ pip install https://github.com/tchlux/regex/archive/1.0.0.zip
 ```bash
 pip install git+https://github.com/tchlux/regex.git
 ```
+
+  This module can also be installed by simply copying out the `regex`
+  subdirectory and placing it anywhere in the Python path.
 
 ## USAGE:
 
@@ -44,10 +47,18 @@ print(regex.match(reg, string))
 ### Command line
 
 ```bash
-python3 -m regex "expression" <file_path_1> <file_path_2> ...
+python3 -m regex "<search-pattern>" "<path-pattern-1>" ["<path-pattern-2>"] [...]
 ```
 
-  Search for the given regular expression in each provided file.
+  Or
+
+```bash
+python3 regex.py "<search-pattern>" "<path-pattern-1>" ["<path-pattern-2>"] [...]
+```
+
+  Search for the given regular expression in any files that match
+  the path pattern regular expression. This will recurse through the
+  subdirectory tree from the current directory.
 
 ## HOW IT WORKS:
 
