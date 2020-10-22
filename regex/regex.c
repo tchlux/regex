@@ -62,6 +62,9 @@
 //  Match this entire documentation block in this C file.
 //    "/.*\n{/}"
 // 
+//  Match "$TEXT$" where TEXT does not contain "\n\n" (two sequential new lines).
+//    "$(({\n}\n?)|(\n?{\n}))*$"
+//
 //
 // NOTES:
 // 
@@ -87,30 +90,28 @@
 //
 // DEVELOPMENT:
 // 
-//  Write a function that accepts a path and searches for all
-//  nonoverlapping matches in that path, printing out results.
-//  Use this as the main executable for this C program.
+//  Figure out better way to return error codes for `match_file`, so
+//   that there are not warnings about converting an int to int*.
 // 
-//  Write `matchl` that returns the *longest* match discovered.
-//   Could this be done by replacing all "t*" with "t*{t}"?
+//  Write tests for match_file.
+// 
+//  Rescan comments and update all documenation throughout.
+// 
+//  Identify ways to reduce size of code within reason, should some
+//   things be abstracted as functions to save repetition?
 // 
 //  Write `randre` that generates a random string that matches the
 //   given regular expression, tile the space of matches so that
 //   all the shortest matches come first, then longer ones
 //    
-//  Write `matchn` that returns *nonoverlapping* matches in arrays.
-//   this could be done with repeated calls to matchs, 
-//   starting after the most recent match
-// 
-//  Write `matcha` that returns *all* starts and ends of matches in arrays.
-//   this could be approximated with repeated calls to matchs,
-//   subtracting out each match from the string by shifting contents,
-//   however this will not get 
+//  Find way to pass in arbitrary "next token" function to the match
+//   function, that way `match` and `matcha` can all go through one
+//   function whether given a character array or a file
 // 
 //  Uncomment the line "#define DEBUG" and recompile to enable 
 //  debugging and run built-in tests.
 // ___________________________________________________________________
-// 
+
 // #define DEBUG
 
 #include <stdio.h>  // printf
@@ -123,6 +124,10 @@
 #define REGEX_EMPTY_GROUP_ERROR -4
 #define STRING_EMPTY_ERROR -5
 #define DEFAULT_GROUP_MOD ' '
+#define MIN_SAMPLE_SIZE 100
+//      ^^ minimum number of bytes read before checking ASCII ratio
+#define FILE_BUFFER_SIZE 33554432
+//      ^^ 2^25 = 32MB = 33554432 bytes
 
 //  Name? 
 //    regex -- regular expression library
@@ -148,6 +153,7 @@ char* SAFE_CHAR(const char c) {
   else if (c == '\t') CHAR3[1] = 't';
   else if (c == '\r') CHAR3[1] = 'r';
   else if (c == '\0') CHAR3[1] = '0';
+  else if (c == EOF ) CHAR3[1] = 'X';
   else CHAR3[0] = c;
   return (char *) CHAR3;
 }
@@ -186,12 +192,14 @@ void _count(const char * regex, int * tokens, int * groups) {
       if (token == '\0') {
 	(*tokens) = -i-1;
 	(*groups) = REGEX_UNCLOSED_GROUP_ERROR;
-	return;
+	gc = REGEX_UNCLOSED_GROUP_ERROR;
+	break;
       // Check for an empty group error.
       } else if (tokens_in_group == 0) {
 	(*tokens) = -i-1;
 	(*groups) = REGEX_EMPTY_GROUP_ERROR;
-	return;
+	gc = REGEX_EMPTY_GROUP_ERROR;
+	break;
       } else {
 	// This group successfully closed.
 	gc++;
@@ -214,7 +222,8 @@ void _count(const char * regex, int * tokens, int * groups) {
        ) {
       (*tokens) = -i-1;
       (*groups) = REGEX_SYNTAX_ERROR;
-      return;
+      gc = REGEX_SYNTAX_ERROR;
+      break;
     // Close opened groups
     } else if ((token == ')') || (token == '}')) {
       gc++;
@@ -224,7 +233,8 @@ void _count(const char * regex, int * tokens, int * groups) {
 	   ((token == '}') && (pt == '{')) ) {
 	(*tokens) = -i-1;
 	(*groups) = REGEX_EMPTY_GROUP_ERROR;
-	return;
+	gc = REGEX_EMPTY_GROUP_ERROR;
+	break;
       }
     // If the character is counted (not special), count it as one.
     } else {
@@ -239,8 +249,19 @@ void _count(const char * regex, int * tokens, int * groups) {
   if (gc != (*groups)) {
     (*tokens) = -i-1;
     (*groups) = REGEX_UNCLOSED_GROUP_ERROR;
-    return;
   }
+  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  // DEBUG: Show regex and number of tokens computed.
+  #ifdef DEBUG
+  if (DO_PRINT) {
+  printf("\nRegex: '");
+  for (int j = 0; regex[j] != '\0'; j++) {
+    printf("%s", SAFE_CHAR(regex[j]));
+  }
+  printf("'\n tokens: %d\n groups: %d\n", (*tokens), (*groups));
+  }
+  #endif
+  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   // Return the total number of tokens and groups.
   return;
 }
@@ -641,14 +662,16 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
   return;
 }
 
+
 // Do a simple regular experession match.
 void match(const char * regex, const char * string, int * start, int * end) {
-  // Check for an empety string.
+  // Check for an empty string.
   if (string[0] == '\0') {
     (*start) = EXIT_TOKEN;
     (*end) = STRING_EMPTY_ERROR;
     return;
   }
+
   // Count the number of tokens and groups in this regular expression.
   int n_tokens, n_groups;
   _count(regex, &n_tokens, &n_groups);
@@ -664,6 +687,7 @@ void match(const char * regex, const char * string, int * start, int * end) {
     }
     return;
   }
+
   // Initialize storage for tracking the current active tokens and
   // where to jump based on the string being parsed.
   const int mem_bytes = ((5*n_tokens+1)*sizeof(int) + (4*n_tokens+2)*sizeof(char));
@@ -680,38 +704,21 @@ void match(const char * regex, const char * string, int * start, int * end) {
   tokens[n_tokens] = '\0';
   jumpi[n_tokens] = '\0';
 
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  // DEBUG: Show regex and number of tokens computed.
-  #ifdef DEBUG
-  if (DO_PRINT) {
-  printf("\nRegex: '");
-  for (int j = 0; regex[j] != '\0'; j++) {
-    printf("%s", SAFE_CHAR(regex[j]));
-  }
-  printf("'\n tokens: %d\n groups: %d\n", n_tokens, n_groups);
-  }
-  #endif
-  // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
   // Determine the jump-to tokens upon successful match and failed
   // match at each token in the regular expression.
   _set_jump(regex, n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
-
-  // Initialize to "no match".
-  (*start) = EXIT_TOKEN;
-  (*end) = 0;
-
   // Set all tokens to be inactive, convert ? to * for simplicity.
   active[n_tokens] = EXIT_TOKEN;
   for (int j = 0; j < n_tokens; j++) {
     // convert both "special tokens" to * for speed, exclude all
     // tokens with jumpi = 1 because those are inside token sets
-    if ((jumpi[j] != 1) && ((tokens[j] == '?') || (tokens[j] == '|')))
+    if ((! jumpi[j]) && ((tokens[j] == '?') || (tokens[j] == '|')))
       tokens[j] = '*';
     active[j] = EXIT_TOKEN; // token is inactive
     incs[j] = 0; // token is not in current stack
     inns[j] = 0; // token is not in next stack
   }
+  
   // Set the current index in the string.
   int i = 0; // current index in string
   char c = string[i]; // current character in string
@@ -722,6 +729,9 @@ void match(const char * regex, const char * string, int * start, int * end) {
   cstack[ics] = 0; // set the first element in stack to '0'
   active[0] = 0; // set the start index of the first token
   incs[0] = 1; // the first token is in the current stack
+  // Initialize to "no match".
+  (*start) = EXIT_TOKEN;
+  (*end) = 0;
 
   // Define an in-line substitution that will be used repeatedly in
   // a following while loop.
@@ -734,7 +744,7 @@ void match(const char * regex, const char * string, int * start, int * end) {
   //   free all memory that was allocated,
   //   set the start and end of the match
   //   return
-  #define STACK_NEXT_TOKEN(stack, si, in_stack)\
+  #define MATCH_STACK_NEXT_TOKEN(stack, si, in_stack)\
     if ((dest >= 0) && (val >= active[dest])) {\
       if (in_stack[dest] == 0) {\
 	si++;\
@@ -801,22 +811,22 @@ void match(const char * regex, const char * string, int * start, int * end) {
       if ((ct == '*') && (! jumpi[j])) {
         if (j == 0) val = i; // ignore leading tokens where possible
 	dest = jumps[j];
-	STACK_NEXT_TOKEN(cstack, ics, incs);
+	MATCH_STACK_NEXT_TOKEN(cstack, ics, incs);
 	dest = jumpf[j];
-	STACK_NEXT_TOKEN(cstack, ics, incs);
+	MATCH_STACK_NEXT_TOKEN(cstack, ics, incs);
       // Check to see if this token matches the current character.
       } else if ((c == ct) || ((ct == '.') && (! jumpi[j]) && (c != '\0'))) {
 	dest = jumps[j];
-	STACK_NEXT_TOKEN(nstack, ins, inns);
+	MATCH_STACK_NEXT_TOKEN(nstack, ins, inns);
       // This token did not match, trigger a jump fail.
       } else {
 	dest = jumpf[j];
 	// jump immediately on fail if this is not the last token in a token set
 	if (jumpi[j] == 1) { 
-	  STACK_NEXT_TOKEN(cstack, ics, incs);
+	  MATCH_STACK_NEXT_TOKEN(cstack, ics, incs);
 	// otherwise, put into the "next" stack
 	} else { 
-	  STACK_NEXT_TOKEN(nstack, ins, inns);
+	  MATCH_STACK_NEXT_TOKEN(nstack, ins, inns);
 	}
       }
     }
@@ -854,6 +864,247 @@ void match(const char * regex, const char * string, int * start, int * end) {
 } 
 
 
+// Find all nonoverlapping matches of a regular expression in a file
+// at a given path. Return arrays of the starts and ends of matches.
+void match_file(const char * regex, const char * path,
+		int * n, int ** starts, int ** ends, int ** lines,
+                float min_ascii_ratio) {
+
+  // Open the file and handle any errors.
+  FILE * file = fopen(path, "r");
+  if (file == NULL) {
+    (*n) = -2;
+    return;
+  }
+
+  // Count the number of tokens and groups in this regular expression.
+  (*n) = -1;
+  int n_tokens, n_groups;
+  _count(regex, &n_tokens, &n_groups);
+  // Error mode, fewer than one token (no possible match).
+  if (n_tokens <= 0) {
+    // Set the error flag and return.
+    if (n_tokens == 0) {
+      (*starts) = (int*) EXIT_TOKEN;
+      (*ends) = (int*) REGEX_NO_TOKENS_ERROR;
+    } else {
+      (*starts) = (int*) n_tokens;
+      (*ends) = (int*) n_groups;
+    }
+    return;
+  }
+
+  // Set there to be 0 matches, initially.
+  (*n) = 0;
+  // Initialize storage for tracking the current active tokens and
+  // where to jump based on the string being parsed.
+  const int mem_bytes = ((5*n_tokens+1)*sizeof(int) + (4*n_tokens+2)*sizeof(char));
+  int * jumps = malloc(mem_bytes); // jump-to location after success
+  int * jumpf = jumps + n_tokens; // jump-to location after failure
+  int * active = jumpf + n_tokens; // presently active tokens in regex
+  int * cstack = active + n_tokens + 1; // current stack of active tokens
+  int * nstack = cstack + n_tokens; // next stack of active tokens
+  char * tokens = (char*) (nstack + n_tokens); // regex index of each token (character)
+  char * jumpi = tokens + n_tokens + 1; // immediately check next on failure
+  char * incs = jumpi + n_tokens; // token flags for "in current stack"
+  char * inns = incs + n_tokens; // token flags for "in next stack"
+  // Terminate the two character arrays with the null character.
+  tokens[n_tokens] = '\0';
+  jumpi[n_tokens] = '\0';
+
+  // Create a character buffer for reading data from the file.
+  size_t buffer_size = FILE_BUFFER_SIZE;
+  fseek(file, 0, SEEK_END); // go to the end of the file
+  size_t file_size = ftell(file); // size of file in bytes
+  rewind(file); // go back to the beginning of the file
+  if (file_size < buffer_size)
+    buffer_size = file_size+1; // set the buffer size smaller if appropriate
+  char * file_buff = malloc(sizeof(char)*buffer_size); // storage for the file contents
+  int bytes_buffered = fread(file_buff, sizeof(char), buffer_size, file);
+  int ib = 0; // index in buffer.
+  if (bytes_buffered < buffer_size) file_buff[bytes_buffered] = EOF;
+
+  // Determine the jump-to tokens upon successful match and failed
+  // match at each token in the regular expression.
+  _set_jump(regex, n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+  // Set all tokens to be inactive, convert ? to * for simplicity.
+  active[n_tokens] = EXIT_TOKEN;
+  for (int j = 0; j < n_tokens; j++) {
+    // convert both "special tokens" to * for speed, exclude all
+    // tokens with jumpi = 1 because those are inside token sets
+    if ((! jumpi[j]) && ((tokens[j] == '?') || (tokens[j] == '|')))
+      tokens[j] = '*';
+    active[j] = EXIT_TOKEN; // token is inactive
+    incs[j] = 0; // token is not in current stack
+    inns[j] = 0; // token is not in next stack
+  }
+
+  // Set the current index in the string.
+  int i = 0; // current index in string
+  int c = file_buff[ib]; // get current character in file
+  int ics = 0; // index in current stack
+  int ins = -1; // index in next stack
+  int dest; // index of next token (for jump)
+  void * temp; // temporary pointer (used for transferring nstack to cstack)
+  cstack[ics] = 0; // set the first element in stack to '0'
+  active[0] = 0; // set the start index of the first token
+  incs[0] = 1; // the first token is in the current stack
+
+  // Initialize to "no match".
+  (*starts) = NULL;
+  (*ends) = NULL;
+  (*lines) = NULL;
+  int n_starts = 0;
+  int s_starts = 0;
+  int n_ends = 0;
+  int s_ends = 0;
+  int n_lines = 0;
+  int s_lines = 0;
+  int lines_read = 1;
+  // Track some file statistics for early exit conditions.
+  float ascii_count = 0.0;
+  float bytes_read = 0.0;
+
+  // Define an in-line function for appending to a list (and managing
+  // when the array is out of space with a size double and a copy).
+  #define APPEND(type, list, size, count, new_val)        \
+    if (count >= size) {                                  \
+      size = 2*size;                                      \
+      type * new_list = malloc(size * sizeof(type));	  \
+      for (int index = 0; index < count; index++)	  \
+	new_list[index] = list[index];			  \
+      if (list != NULL) free(list);			  \
+      list = new_list;					  \
+    }                                                     \
+    list[count] = new_val;                                \
+    count++;
+
+  // Define an in-line substitution that will be used repeatedly in
+  // a following while loop.
+  #define MATCH_FILE_STACK_NEXT_TOKEN(stack, si, in_stack) \
+    if ((dest >= 0) && (val >= active[dest])) { \
+      if (dest == n_tokens) { \
+        (*n)++; \
+        APPEND(int, (*starts), s_starts, n_starts, val); \
+        APPEND(int, (*ends), s_ends, n_ends, (((jumpi[j]) || (ct != '*')) ? i+1 : i)); \
+        APPEND(int, (*lines), s_lines, n_lines, lines_read); \
+      } else { \
+        if (in_stack[dest] == 0) { \
+          si++; \
+          stack[si] = dest; \
+          in_stack[dest] = 1; \
+        } \
+        active[dest] = val; \
+      } \
+    }                                
+
+  // Start searching for a regular expression match. (the character
+  // 'c' is checked for null value at the end of the loop.
+  do {
+    // Continue popping active elements from the current stack and
+    // checking them for a match and jump conditions, add next tokens
+    // to the next stack.
+    while (ics >= 0) {
+      // Record the ASCII fraction, exit if file is too non-ASCII.
+      if ((c < 128) && (c != '\0')) {
+        ascii_count++;
+      } else if ((i >= MIN_SAMPLE_SIZE) &&
+                 ((ascii_count / i) < min_ascii_ratio)) {
+        (*n) = -3;
+        break;
+      }
+      // Pop next token to check from the stack.
+      const int j = cstack[ics];
+      ics--;
+      incs[j] = 0;
+      // Get the token and the "match start index" for the match that led here.
+      const char ct = tokens[j];
+      int val = active[j];
+      // If this is a special character, add its tokens immediately to
+      // the current stack (to be checked before next charactrer).
+      if ((ct == '*') && (! jumpi[j])) {
+        if (j == 0) val = i; // ignore leading tokens where possible
+	dest = jumps[j];
+	MATCH_FILE_STACK_NEXT_TOKEN(cstack, ics, incs);
+	dest = jumpf[j];
+	MATCH_FILE_STACK_NEXT_TOKEN(cstack, ics, incs);
+      // Check to see if this token matches the current character.
+      } else if ((c == ct) || ((ct == '.') && (! jumpi[j]) && (c != EOF))) {
+	dest = jumps[j];
+	MATCH_FILE_STACK_NEXT_TOKEN(nstack, ins, inns);
+      // This token did not match, trigger a jump fail.
+      } else {
+	dest = jumpf[j];
+	// jump immediately on fail if this is not the last token in a token set
+	if (jumpi[j] == 1) { 
+	  MATCH_FILE_STACK_NEXT_TOKEN(cstack, ics, incs);
+	// otherwise, put into the "next" stack
+	} else { 
+	  MATCH_FILE_STACK_NEXT_TOKEN(nstack, ins, inns);
+	}
+      }
+    }
+    // Switch out the current stack with the next stack.
+    //   switch stack of token indices
+    temp = (void*) cstack; // store "current stack"
+    cstack = nstack; // set "current stack"
+    ics = ins; // set "index in current stack"
+    nstack = (int*) temp; // set "next stack"
+    //   switch flag arrays of "token in stack"
+    temp = (void*) incs; // store "in current stack"
+    incs = inns; // set "in current stack"
+    inns = (char*) temp; // set "in next stack"
+    ins = -1; // reset the count of elements in "next stack"
+
+    // If the just-parsed character was the end of the string, then break.
+    if (c == EOF) {
+      break;
+    // Get the next character in the string (assuming it's null terminated).
+    } else {
+      i++;
+      ib++;
+      // Read another chunk of the file.
+      if (ib >= buffer_size) {
+        // Reset the index in the buffer and read next character set.
+        ib = 0;
+        bytes_buffered = fread(file_buff, sizeof(char), buffer_size, file);
+        if (bytes_buffered < buffer_size) file_buff[bytes_buffered] = EOF;
+      }
+      c = file_buff[ib];
+      // Increment the number of lines read.
+      if (c == '\n') lines_read++;
+
+    }
+  } while (ics >= 0) ; // loop until the active stack is empty
+  free(file_buff); // free the file buffer
+  free(jumps); // free all memory that was allocated
+  if (ferror(file)) (*n) = -2; // check for error while reading file
+  fclose(file); // close the file
+  // Check for errors, deallocate 'ends' and 'starts' if there are errors.
+  if ((*n) < 0) {
+    if ((*ends) != NULL) free(*ends);
+    if ((*starts) != NULL) free(*starts);
+  } else {
+    // Define an in-line function for shrinking allocated memory to fit
+    // the size of the contained values to reduce memory footprint.
+    #define SHRINK_TO_FIT(type, list, size, count)      \
+    if (count < size) {                                 \
+      size = count;                                     \
+      type * new_list = malloc(size * sizeof(type));    \
+      for (int index = 0; index < count; index++)       \
+	new_list[index] = list[index];                  \
+      if (list != NULL) free(list);                     \
+      list = new_list;                                  \
+    }
+    // Re-allocate the output arrays to be the exact size of the number of matches.
+    SHRINK_TO_FIT(int, (*starts), s_starts, n_starts);
+    SHRINK_TO_FIT(int, (*ends), s_ends, n_ends);
+    SHRINK_TO_FIT(int, (*lines), s_lines, n_lines);
+  }
+  return;
+}
+
+
 // If DEBUG is not define, make the main of this program be a command line interface.
 #ifndef DEBUG
 int main(int argc, char * argv[]) {
@@ -873,12 +1124,19 @@ int main(int argc, char * argv[]) {
 int run_tests(); // <- actually declared later
 // For testing purposes.
 int main(int argc, char * argv[]) {
-  // singleton manual test.. (use "if (1)" to run, "if (0)" to skip)
+  // =================================================================
+  // Manual test of `match`.. (use "if (1)" to run, "if (0)" to skip)
   if (0) {
+    // ------------------------------------------
     // char * regex = "((\r\n)|\r|\n)";
     // char * string = "\r\n**** \n";
-    char * regex = "[[][[]";
-    char * string = "[[match]]";
+    // ------------------------------------------
+    // char * regex = "$(({\n}\n?)|(\n?{\n}))*$";
+    // char * string = "$\n  testing \n$";
+    // ------------------------------------------
+    DO_PRINT = 1;
+    char * regex = ".*st{.}";
+    char * string = "| test";
     int start, end;
     match(regex, string, &start, &end);
     printf("==================================================\n\n");
@@ -893,7 +1151,9 @@ int main(int argc, char * argv[]) {
 	} else {
 	  printf(".\n");
 	}
-	// No matches found in the search string.
+        // Mark the failure in the match with return code.
+        return (1);
+      // No matches found in the search string.
       } else {
 	printf("no match found\n");
       }
@@ -908,8 +1168,63 @@ int main(int argc, char * argv[]) {
 	printf("%c",string[j]);
       printf("\"\n");
     }
+    return 0;
+  // =================================================================
+  // Manual test of `match_file`.. (use "if (1)" to run, "if (0)" to skip)
+  } else if (1) {
+    DO_PRINT = 1;
+    char * regex = ".*hehe";
+    char * path = "regex.so";
+    int n_matches;
+    int * starts;
+    int * ends;
+    int * lines;
+    float min_ascii_ratio = 0.5;
+    match_file(regex, path, &n_matches, &starts, &ends, &lines, min_ascii_ratio);
+    printf("==================================================\n\n");
+    // Handle errors.
+    if (n_matches == -3) {
+      printf("\nERROR: too many non-ASCII characters in file");
+      return(3);
+    } else if (n_matches == -2) {
+      printf("\nERROR: failed to load file");
+      return(2);
+    } else if (n_matches == -1) {
+      if ((int) starts > 0) {
+        if ((int) ends > 0) {
+          printf("\nERROR: invalid regular expression, code %d", (int) ends);
+          if ((int) starts > 1) {
+            printf(" error at position %d.\n", ((int) starts)-1);
+            printf("  ");
+            for (int i = 0; regex[i] != '\0'; i++)
+              printf("%s", SAFE_CHAR(regex[i]));
+            printf("\n");
+            printf("  %*c\n", ((int) starts), '^');
+          } else {
+            printf(".\n");
+          }
+          // Mark the failure in the match with return code.
+          return (1);
+        // No matches found in the search string.
+        } else {
+          printf("ERROR: unexpected execution flow, (n_matches = -1) and match at (%d -> %d)\n", (int) starts, (int) ends);
+          return(4);
+        }
+      }
+      printf("ERROR: unexpected execution flow, (n_matches = -1) and match at (%d -> %d)\n", (int) starts, (int) ends);
+      return(4);
+    } else {
+      // Print out the matched expression.
+      printf("\n");
+      for (int i = 0; i < n_matches; i++) {
+        printf("  %d -> %d\n", starts[i], ends[i]);
+      }
+      return 0;
+    }
+  // =================================================================
+  } else {
+    return(run_tests());
   }
-  return(run_tests());
 }
 
 int run_tests() {
@@ -979,6 +1294,7 @@ int run_tests() {
     "[*][*]*{[*]}",
     "[[][[]",
     ".*end{.}",
+    "[|]",
     // Last test regular expression must be empty!
     ""
   };
@@ -1049,6 +1365,7 @@ int run_tests() {
     4,
     2,
     6,
+    1,
     // Last test regular expression must be empty!
     0
   };
@@ -1118,6 +1435,7 @@ int run_tests() {
     8,
     4,
     2,
+    1,
     1,
     // Last test regular expression must be empty!
     0
@@ -1189,6 +1507,7 @@ int run_tests() {
     "****",
     "[[",
     "*.end.",
+    "|",
     // Last test regular expression must be empty!
     ""
   };
@@ -1259,6 +1578,7 @@ int run_tests() {
     1,2,1,-1,
     1,2,
     1,0,3,4,5,-1,
+    1,
     // Last test regular expression must be empty!
     // {}
   };
@@ -1329,6 +1649,7 @@ int run_tests() {
     -1,3,-1,4,
     -1,-1,
     2,-1,-1,-1,-1,6,
+    -1,
     // Last test regular expression must be empty!
     // {}
   };
@@ -1398,6 +1719,7 @@ int run_tests() {
     2,0,2,2,
     2,2,
     0,0,0,0,0,0,
+    2,
     // Last test regular expression must be empty!
     //
   };
@@ -1468,6 +1790,7 @@ int run_tests() {
     "*** test",
     "[[ test",
     " does it ever end",
+    "| test",
     // Last test regular expression must be empty!
     ""
   };
@@ -1538,6 +1861,7 @@ int run_tests() {
     0,
     0,
     14,
+    0,
     //
     -1
   };
@@ -1608,6 +1932,7 @@ int run_tests() {
     4,
     2,
     18,
+    1,
     //
     STRING_EMPTY_ERROR
   };
@@ -1780,3 +2105,61 @@ int run_tests() {
 }
 
 #endif
+
+
+//2020-10-21 23:13:29
+//
+    //////////////////////////////////////////////////////////////////////////////////////////////////
+    // // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                         //
+    // #ifdef DEBUG                                                                                 //
+    // if (DO_PRINT) {                                                                              //
+    // printf("--------------------------------------------------\n");                              //
+    // printf("i = %d   c = '%s'  ASCII: %.2f\n\n", i, SAFE_CHAR(c), ascii_count / bytes_read);     //
+    // printf("stack:\n");                                                                          //
+    // for (int j = ics;  j >= 0; j--) {                                                            //
+    //   printf(" '%s' (at %2d) %d\n", SAFE_CHAR(tokens[cstack[j]]), cstack[j], active[cstack[j]]); //
+    // }                                                                                            //
+    // printf("\n");                                                                                //
+    // printf("active: (search token / index of match start)\n");                                   //
+    // for (int j = 0; j <= n_tokens; j++) {                                                        //
+    //   printf("  %-3s", SAFE_CHAR(tokens[j]));                                                    //
+    // }                                                                                            //
+    // printf("\n");                                                                                //
+    // for (int j = 0; j <= n_tokens; j++) {                                                        //
+    //   printf("  %-3d", active[j]);                                                               //
+    // }                                                                                            //
+    // printf("\n\n");                                                                              //
+    // }                                                                                            //
+    // #endif                                                                                       //
+    // // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                           //
+    //////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//2020-10-21 23:16:09
+//
+      /////////////////////////////////////////////////////////////////////////////////////////
+      // // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                //
+      // #ifdef DEBUG                                                                        //
+      // if (DO_PRINT) {                                                                     //
+      // printf("    j = %d   ct = '%s'  %2d %2d \n", j, SAFE_CHAR(ct), jumps[j], jumpf[j]); //
+      // }                                                                                   //
+      // #endif                                                                              //
+      // // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                //
+      /////////////////////////////////////////////////////////////////////////////////////////
+
+
+//2020-10-22 00:19:34
+//
+/////////////////////////////////////////////////////////////////////////////////
+// //  Write `matchn` that returns *nonoverlapping* matches in arrays.         //
+// //   this could be done with repeated calls to matchs,                      //
+// //   starting after the most recent match                                   //
+// //                                                                          //
+// //  Write `matchl` that returns the *longest* match discovered.             //
+// //   Could this be done by replacing all "t*" with "t*{t}"?                 //
+// //                                                                          //
+// //  Write `matcha` that returns *all* starts and ends of matches in arrays. //
+// //   this could be approximated with repeated calls to matchs,              //
+// //   subtracting out each match from the string by shifting contents,       //
+// //   however this will not get                                              //
+/////////////////////////////////////////////////////////////////////////////////

@@ -1,3 +1,18 @@
+# Plans:
+# 
+#  The log files should be tempfiles for each process, then at the
+#  end of the process, if the process is told to save the logs, then
+#  the file should be moved to its final place. <- then processes
+#  that fail will never produce logs..
+# 
+#  The log files should be removed entirely, that operation is left
+#  to the user because they know they are using a parallel map 
+#  process that could result in out-of-order prints.
+# 
+#  The number of arguments passed to processes should be reduced, if
+#  possible the global QUEUEs should be used.
+# 
+
 import os, sys
 # Get functions required for establishing multiprocessing
 from multiprocessing import cpu_count, get_context, current_process
@@ -67,8 +82,8 @@ builtin_map = map
 # 
 #   The mapped function will not typically have access to global variables.
 def map(func, iterable, max_waiting_jobs=1, max_waiting_returns=1,
-        order=False, save_logs=False, redirect=True,
-        threads=MAX_PROCS, nchunks=2*MAX_PROCS, args=[], kwargs={}):
+        order=True, save_logs=False, redirect=True,
+        threads=MAX_PROCS, nchunks=4*MAX_PROCS, args=[], kwargs={}):
     # If chunking should be done, then `split` the iterable.
     chunking = (nchunks is not None)
     if chunking:
@@ -81,8 +96,8 @@ def map(func, iterable, max_waiting_jobs=1, max_waiting_returns=1,
                      chunking, args, kwargs)
     # Start a "producer" process that will add jobs to the queue,
     # create the set of "consumer" processes that will get jobs from the queue.
-    producer_process = MAP_CTX.Process(target=producer, args=producer_args)
-    consumer_processes = [MAP_CTX.Process(target=consumer, args=consumer_args)
+    producer_process = MAP_CTX.Process(target=producer, args=producer_args, daemon=True)
+    consumer_processes = [MAP_CTX.Process(target=consumer, args=consumer_args, daemon=True)
                           for i in range(threads)]
     # Track (in a global) all of the active processes.
     MAP_PROCESSES.append(producer_process)
@@ -119,11 +134,9 @@ def map(func, iterable, max_waiting_jobs=1, max_waiting_returns=1,
                     idx += 1
         # Join all processes (to close them gracefully).
         for p in consumer_processes:
-            try: p.join()
-            except AssertionError: pass
+            p.join()
             MAP_PROCESSES.remove(p)
-        try: producer_process.join()
-        except AssertionError: pass
+        producer_process.join()
         MAP_PROCESSES.remove(producer_process)
         # Delete log files if the user doess not want them.
         if not save_logs: clear_logs()
