@@ -148,10 +148,10 @@ def translate_return_values(regex, start, end):
         elif (end < -1): # error code provided by C
             err = f"Invalid regular expression (code {-end})"
             if (start < -1):
-                start -= sum(1 for c in regex if c in "\n\t\r\0")
+                start -= sum(1 for c in str(regex,"utf-8") if c in "\n\t\r\0")
                 err += f", error at position {-start-1}.\n"
                 err += f"  {str([regex])[1:-1]}\n"
-                err += f"  {(-start-1)*' '}^"
+                err += f"  {(-start)*' '}^"
             else: err += "."
             raise(RegexError(err))
 
@@ -233,10 +233,20 @@ def match_file(path, regex, ascii_ratio=0.7, **translate_kwargs):
             return path, 0, f"  binary file skipped at '{path}'"
         if (n == -2):
             raise(OSError(f"Failed to open file '{path}'."))
-        else:
-            translate_return_values(regex, -starts.value, -ends.value)
-        #   ^^ This should raise an error.
+        elif (n == -1):
+            starts = (ctypes.c_int*1).from_address(starts.value)[0]
+            ends = (ctypes.c_int*1).from_address(ends.value)[0]
+            result = translate_return_values(regex, starts, ends)
+            # ^^ this might raise an error, otherwise it's a no match
+            if (result == None): return path, 0, f"  no matches in '{path}'"
+            elif (result == (0,0)):
+                raise(RegexError("`match_file` requires nonempty regular expression."))
+            else:
+                raise(NotImplementedError)
     else:
+        # cd ~/Git/Old/VarSys/ ; frex "poetry"
+        # cd ~/Git/regex ; frex -s "he" "[.]py"
+
         if PRINT_FILE_SEPARATORS: summary = f"{'-'*70}\n{' '*(32-len(path)//2)}{path}"
         else: summary = ""
         starts = (ctypes.c_int*n).from_address(starts.value)
@@ -246,60 +256,18 @@ def match_file(path, regex, ascii_ratio=0.7, **translate_kwargs):
             for i in range(n):
                 f.seek(max(0,starts[i]-HALF_MAX_PREVIEW_WIDTH), 0)
                 bytes_to_read = (ends[i] - starts[i]) + 2*HALF_MAX_PREVIEW_WIDTH
-                match_line_string = f.read(bytes_to_read)
+                if (bytes_to_read < 1):
+                    print("ERROR:")
+                    print("list(starts): ",list(starts))
+                    print("list(ends):   ",list(ends))
+                    print("list(lines):  ",list(lines))
+                    print("i: ",i)
+                    print("bytes_to_read: ",bytes_to_read)
+                    raise(Exception())
+                match_line_string = str(f.read(bytes_to_read))[1:]
                 if PRINT_FILE_SEPARATORS: summary += f"\n{lines[i]}: {match_line_string}"
                 else: summary += f"\n{PRINT_PREFIX}{path}:{lines[i]:<5d} {match_line_string}"
-
         return path, n, summary
-
-    # cd ~/Git/Old/VarSys/3-Dissertation/ ; python3 -m regex -s "poetry"
-    exit()
-    import ctypes, gc
-    # Initialize the current line, the number of matches found, and 
-    # a summary string of all matches.
-    lines = 1
-    n_matches = 0
-    summary = ""
-    # Make sure the file exists.
-    if (not os.path.exists(path)): return path, n_matches, summary
-    # Open the file.
-    file_string = ""
-    with open(path) as f:
-        # Try reading the file, if it fails then skip it.
-        try:
-            file_string = f.read()
-            # Get the location of any matches in the file.
-            loc = match(regex, file_string, **translate_kwargs)
-            if (loc is None): return path, n_matches, summary
-            if PRINT_FILE_SEPARATORS: summary += f"{'-'*70}\n{' '*(32-len(path)//2)}{path}"
-            while (loc is not None):
-                n_matches += 1
-                # Process the strings to get the match.
-                start, end = loc
-                file_start = file_string[:start]
-                match_string = file_string[start:end]
-                file_end = file_string[end:]
-                # Get the first new line before and after the match.
-                nearest_new_line = ("\n"+file_start)[::-1].index("\n")
-                next_new_line = (file_end+"\n").index("\n")
-                string_start = start-min(nearest_new_line+1, HALF_MAX_PREVIEW_WIDTH)
-                string_end = end+min(next_new_line, HALF_MAX_PREVIEW_WIDTH)
-                match_line_string = file_string[string_start:string_end]
-                # Print the line number, accumulate line count, look for next match.
-                lines += file_start.count("\n")
-                match_line_string = str([match_line_string.strip()])[2:-2]
-                if (len(match_line_string) > 0):
-                    if PRINT_FILE_SEPARATORS: summary += f"\n{lines}: {match_line_string}"
-                    else: summary += f"\n{PRINT_PREFIX}{path}:{lines:<4d} {match_line_string}"
-                lines += match_string.count("\n")
-                file_string = file_end
-                loc = match(regex, file_string, **translate_kwargs)
-        # This happens when a file-read error occurs because of bad encoding.
-        except Exception as exc: summary = "ERROR: " + str(type(exc))
-    # Return the number of matches and the  summary string.
-    del(file_string)
-    gc.collect()
-    return path, n_matches, summary
 
 
 # Do a fast regular expression search over files that match a given
@@ -329,13 +297,11 @@ def frex(regex, *path_patterns, curdir=".", recursive=True,
         match_iterator = p_map(p_match_file, paths, args=(regex,), kwargs=translate_kwargs)
     else:
         match_iterator = (match_file(p, regex, **translate_kwargs) for p in paths)
-
     # Cycle over all matches and print the summaries.
     matches = {}
     for p,n,s in match_iterator:
         matches[p] = n
         if (n > 0): print(s)
-
     # Return the dictionary containing all paths and matches.
     return matches
 
@@ -377,14 +343,21 @@ def main():
 ERROR: Only {len(sys.argv)} command line argument{'s' if len(sys.argv) > 1 else ''} provided.
 
 Expected call to look like:
-  python3 -m regex [-n] "<search-pattern>" ["<path-pattern-1>"] ["<path-pattern-2>"] [...]
+  python3 -m regex [-n] [-c] [-s] "<search-pattern>" ["<path-pattern-1>"] ["<path-pattern-2>"] [...]
 
-Where "-n" is provided if the call to `frex` should NOT recursively
+"-n" is provided if the call to `frex` should NOT recursively
 search all files in the directory tree from the current directory.
 If no path patterns are given, all files are searched.
 Documentation for this module follows.
 
-{__doc__}''')
+"-c" is provided if the given regular expression is case sensitive,
+meaning the letters should be matched with the exact same case.
+
+"-s" is provided if the search should be run serially (not in parallel).
+
+See `python -c "import regex; help(regex)"` for more detailed 
+documentation including the regular expression language specification.
+''')
         exit()
     regex = sys.argv[1]
     print("Using regex:",str([translate_regex(regex,case_sensitive)])[1:-1])
@@ -399,7 +372,7 @@ Documentation for this module follows.
     if (total_matches > 0):
         print(f"\n found {total_matches} match{'es' if total_matches > 0 else ''} across {len(matches)} files")
     else:
-        print("\n no matches found")
+        print(f"\n no matches found across {len(matches)} files")
 
 
 # cd ~/Git/Old/VarSys/3-Dissertation ; python3 -m regex "poetry"
@@ -505,3 +478,57 @@ if __name__ == "__main__":
 # # print(match("^[|]", "| test")) #
 # # exit()                         #
 ####################################
+
+
+# 2020-10-22 00:25:12
+# 
+    ##############################################################################################
+    # #                                                                                          #
+    # exit()                                                                                     #
+    # import ctypes, gc                                                                          #
+    # # Initialize the current line, the number of matches found, and                            #
+    # # a summary string of all matches.                                                         #
+    # lines = 1                                                                                  #
+    # n_matches = 0                                                                              #
+    # summary = ""                                                                               #
+    # # Make sure the file exists.                                                               #
+    # if (not os.path.exists(path)): return path, n_matches, summary                             #
+    # # Open the file.                                                                           #
+    # file_string = ""                                                                           #
+    # with open(path) as f:                                                                      #
+    #     # Try reading the file, if it fails then skip it.                                      #
+    #     try:                                                                                   #
+    #         file_string = f.read()                                                             #
+    #         # Get the location of any matches in the file.                                     #
+    #         loc = match(regex, file_string, **translate_kwargs)                                #
+    #         if (loc is None): return path, n_matches, summary                                  #
+    #         if PRINT_FILE_SEPARATORS: summary += f"{'-'*70}\n{' '*(32-len(path)//2)}{path}"    #
+    #         while (loc is not None):                                                           #
+    #             n_matches += 1                                                                 #
+    #             # Process the strings to get the match.                                        #
+    #             start, end = loc                                                               #
+    #             file_start = file_string[:start]                                               #
+    #             match_string = file_string[start:end]                                          #
+    #             file_end = file_string[end:]                                                   #
+    #             # Get the first new line before and after the match.                           #
+    #             nearest_new_line = ("\n"+file_start)[::-1].index("\n")                         #
+    #             next_new_line = (file_end+"\n").index("\n")                                    #
+    #             string_start = start-min(nearest_new_line+1, HALF_MAX_PREVIEW_WIDTH)           #
+    #             string_end = end+min(next_new_line, HALF_MAX_PREVIEW_WIDTH)                    #
+    #             match_line_string = file_string[string_start:string_end]                       #
+    #             # Print the line number, accumulate line count, look for next match.           #
+    #             lines += file_start.count("\n")                                                #
+    #             match_line_string = str([match_line_string.strip()])[2:-2]                     #
+    #             if (len(match_line_string) > 0):                                               #
+    #                 if PRINT_FILE_SEPARATORS: summary += f"\n{lines}: {match_line_string}"     #
+    #                 else: summary += f"\n{PRINT_PREFIX}{path}:{lines:<4d} {match_line_string}" #
+    #             lines += match_string.count("\n")                                              #
+    #             file_string = file_end                                                         #
+    #             loc = match(regex, file_string, **translate_kwargs)                            #
+    #     # This happens when a file-read error occurs because of bad encoding.                  #
+    #     except Exception as exc: summary = "ERROR: " + str(type(exc))                          #
+    # # Return the number of matches and the  summary string.                                    #
+    # del(file_string)                                                                           #
+    # gc.collect()                                                                               #
+    # return path, n_matches, summary                                                            #
+    ##############################################################################################

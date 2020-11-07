@@ -90,10 +90,19 @@
 //
 // DEVELOPMENT:
 // 
+//  Make this a pure C executable, place all Python functionality into
+//   this file when compiled (without DEBUG).
+// 
+//  Refactor into four functions:
+//    match -- find first regex match in a string
+//    matcha -- find all regex matches in a string
+//    fmatch -- find the first regex match in a file
+//    fmatcha -- find all regex matches in a file
+// 
 //  Figure out better way to return error codes for `match_file`, so
 //   that there are not warnings about converting an int to int*.
 // 
-//  Write tests for match_file.
+//  Write tests for `match_file`.
 // 
 //  Rescan comments and update all documenation throughout.
 // 
@@ -112,7 +121,7 @@
 //  debugging and run built-in tests.
 // ___________________________________________________________________
 
-// #define DEBUG
+#define DEBUG
 
 #include <stdio.h>  // printf
 #include <stdlib.h> // malloc, free
@@ -128,6 +137,8 @@
 //      ^^ minimum number of bytes read before checking ASCII ratio
 #define FILE_BUFFER_SIZE 33554432
 //      ^^ 2^25 = 32MB = 33554432 bytes
+#define INITIAL_FOUND_SIZE 4
+//      ^^ default size of the arrays that store all regex matches
 
 //  Name? 
 //    regex -- regular expression library
@@ -883,13 +894,15 @@ void match_file(const char * regex, const char * path,
   _count(regex, &n_tokens, &n_groups);
   // Error mode, fewer than one token (no possible match).
   if (n_tokens <= 0) {
+    (*starts) = malloc(2 * sizeof(int));
+    (*ends) = (*starts) + 1;
     // Set the error flag and return.
     if (n_tokens == 0) {
-      (*starts) = (int*) EXIT_TOKEN;
-      (*ends) = (int*) REGEX_NO_TOKENS_ERROR;
+      (*starts)[0] = EXIT_TOKEN;
+      (*ends)[0] = REGEX_NO_TOKENS_ERROR;
     } else {
-      (*starts) = (int*) n_tokens;
-      (*ends) = (int*) n_groups;
+      (*starts)[0] = n_tokens;
+      (*ends)[0] = n_groups;
     }
     return;
   }
@@ -939,8 +952,8 @@ void match_file(const char * regex, const char * path,
     inns[j] = 0; // token is not in next stack
   }
 
-  // Set the current index in the string.
-  int i = 0; // current index in string
+  // Set the current index in the file.
+  int i = 0; // current index in file
   int c = file_buff[ib]; // get current character in file
   int ics = 0; // index in current stack
   int ins = -1; // index in next stack
@@ -954,30 +967,12 @@ void match_file(const char * regex, const char * path,
   (*starts) = NULL;
   (*ends) = NULL;
   (*lines) = NULL;
-  int n_starts = 0;
-  int s_starts = 0;
-  int n_ends = 0;
-  int s_ends = 0;
-  int n_lines = 0;
-  int s_lines = 0;
+  int n_found = 0; // number found
+  int s_found = 0; // size of "found" arrays
   int lines_read = 1;
   // Track some file statistics for early exit conditions.
   float ascii_count = 0.0;
   float bytes_read = 0.0;
-
-  // Define an in-line function for appending to a list (and managing
-  // when the array is out of space with a size double and a copy).
-  #define APPEND(type, list, size, count, new_val)        \
-    if (count >= size) {                                  \
-      size = 2*size;                                      \
-      type * new_list = malloc(size * sizeof(type));	  \
-      for (int index = 0; index < count; index++)	  \
-	new_list[index] = list[index];			  \
-      if (list != NULL) free(list);			  \
-      list = new_list;					  \
-    }                                                     \
-    list[count] = new_val;                                \
-    count++;
 
   // Define an in-line substitution that will be used repeatedly in
   // a following while loop.
@@ -985,9 +980,26 @@ void match_file(const char * regex, const char * path,
     if ((dest >= 0) && (val >= active[dest])) { \
       if (dest == n_tokens) { \
         (*n)++; \
-        APPEND(int, (*starts), s_starts, n_starts, val); \
-        APPEND(int, (*ends), s_ends, n_ends, (((jumpi[j]) || (ct != '*')) ? i+1 : i)); \
-        APPEND(int, (*lines), s_lines, n_lines, lines_read); \
+        if (n_found >= s_found) { \
+          if (s_found == 0) s_found = INITIAL_FOUND_SIZE; \
+          else s_found = 2*s_found; \
+          int * new_starts = malloc(3 * s_found * sizeof(int)); \
+          int * new_ends = new_starts + s_found; \
+          int * new_lines = new_ends + s_found;  \
+          for (int index = 0; index < n_found; index++)	{ \
+            new_starts[index] = (*starts)[index]; \
+            new_ends[index] = (*ends)[index]; \
+            new_lines[index] = (*lines)[index]; \
+          } \
+          if ((*starts) != NULL) free(*starts); \
+          (*starts) = new_starts; \
+          (*ends) = new_ends; \
+          (*lines) = new_lines; \
+        } \
+        (*starts)[n_found] = val; \
+        (*ends)[n_found] = (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
+        (*lines)[n_found] = lines_read; \
+        n_found++; \
       } else { \
         if (in_stack[dest] == 0) { \
           si++; \
@@ -1080,26 +1092,26 @@ void match_file(const char * regex, const char * path,
   free(jumps); // free all memory that was allocated
   if (ferror(file)) (*n) = -2; // check for error while reading file
   fclose(file); // close the file
-  // Check for errors, deallocate 'ends' and 'starts' if there are errors.
+  // Check for errors, deallocate 'ends', 'starts', and 'lines' if there are errors.
   if ((*n) < 0) {
-    if ((*ends) != NULL) free(*ends);
     if ((*starts) != NULL) free(*starts);
   } else {
-    // Define an in-line function for shrinking allocated memory to fit
-    // the size of the contained values to reduce memory footprint.
-    #define SHRINK_TO_FIT(type, list, size, count)      \
-    if (count < size) {                                 \
-      size = count;                                     \
-      type * new_list = malloc(size * sizeof(type));    \
-      for (int index = 0; index < count; index++)       \
-	new_list[index] = list[index];                  \
-      if (list != NULL) free(list);                     \
-      list = new_list;                                  \
-    }
     // Re-allocate the output arrays to be the exact size of the number of matches.
-    SHRINK_TO_FIT(int, (*starts), s_starts, n_starts);
-    SHRINK_TO_FIT(int, (*ends), s_ends, n_ends);
-    SHRINK_TO_FIT(int, (*lines), s_lines, n_lines);
+    if (n_found < s_found) {
+      s_found = n_found;
+      int * new_starts = malloc(3 * s_found * sizeof(int));
+      int * new_ends = new_starts + s_found;
+      int * new_lines = new_ends + s_found;
+      for (int index = 0; index < n_found; index++) {
+        new_starts[index] = (*starts)[index];
+        new_ends[index] = (*ends)[index];
+        new_lines[index] = (*lines)[index];
+      }
+      if ((*starts) != NULL) free(*starts);
+      (*starts) = new_starts;
+      (*ends) = new_ends;
+      (*lines) = new_lines;
+    }
   }
   return;
 }
@@ -1119,6 +1131,12 @@ int main(int argc, char * argv[]) {
   printf("\n");
 }
 #endif
+
+
+// ===================================================================
+//                  BEGIN   T E S T I N G   CODE
+// ===================================================================
+
 
 #ifdef DEBUG
 int run_tests(); // <- actually declared later
@@ -1171,10 +1189,11 @@ int main(int argc, char * argv[]) {
     return 0;
   // =================================================================
   // Manual test of `match_file`.. (use "if (1)" to run, "if (0)" to skip)
-  } else if (1) {
+  } else if (0) {
     DO_PRINT = 1;
     char * regex = ".*hehe";
-    char * path = "regex.so";
+    // char * path = "regex.so";
+    char * path = "test.txt";
     int n_matches;
     int * starts;
     int * ends;
@@ -2109,43 +2128,43 @@ int run_tests() {
 
 //2020-10-21 23:13:29
 //
-    //////////////////////////////////////////////////////////////////////////////////////////////////
-    // // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                         //
-    // #ifdef DEBUG                                                                                 //
-    // if (DO_PRINT) {                                                                              //
-    // printf("--------------------------------------------------\n");                              //
-    // printf("i = %d   c = '%s'  ASCII: %.2f\n\n", i, SAFE_CHAR(c), ascii_count / bytes_read);     //
-    // printf("stack:\n");                                                                          //
-    // for (int j = ics;  j >= 0; j--) {                                                            //
-    //   printf(" '%s' (at %2d) %d\n", SAFE_CHAR(tokens[cstack[j]]), cstack[j], active[cstack[j]]); //
-    // }                                                                                            //
-    // printf("\n");                                                                                //
-    // printf("active: (search token / index of match start)\n");                                   //
-    // for (int j = 0; j <= n_tokens; j++) {                                                        //
-    //   printf("  %-3s", SAFE_CHAR(tokens[j]));                                                    //
-    // }                                                                                            //
-    // printf("\n");                                                                                //
-    // for (int j = 0; j <= n_tokens; j++) {                                                        //
-    //   printf("  %-3d", active[j]);                                                               //
-    // }                                                                                            //
-    // printf("\n\n");                                                                              //
-    // }                                                                                            //
-    // #endif                                                                                       //
-    // // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                           //
-    //////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////
+// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                         //
+// #ifdef DEBUG                                                                                 //
+// if (DO_PRINT) {                                                                              //
+// printf("--------------------------------------------------\n");                              //
+// printf("i = %d   c = '%s'  ASCII: %.2f\n\n", i, SAFE_CHAR(c), ascii_count / bytes_read);     //
+// printf("stack:\n");                                                                          //
+// for (int j = ics;  j >= 0; j--) {                                                            //
+//   printf(" '%s' (at %2d) %d\n", SAFE_CHAR(tokens[cstack[j]]), cstack[j], active[cstack[j]]); //
+// }                                                                                            //
+// printf("\n");                                                                                //
+// printf("active: (search token / index of match start)\n");                                   //
+// for (int j = 0; j <= n_tokens; j++) {                                                        //
+//   printf("  %-3s", SAFE_CHAR(tokens[j]));                                                    //
+// }                                                                                            //
+// printf("\n");                                                                                //
+// for (int j = 0; j <= n_tokens; j++) {                                                        //
+//   printf("  %-3d", active[j]);                                                               //
+// }                                                                                            //
+// printf("\n\n");                                                                              //
+// }                                                                                            //
+// #endif                                                                                       //
+// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                           //
+//////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 //2020-10-21 23:16:09
 //
-      /////////////////////////////////////////////////////////////////////////////////////////
-      // // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                //
-      // #ifdef DEBUG                                                                        //
-      // if (DO_PRINT) {                                                                     //
-      // printf("    j = %d   ct = '%s'  %2d %2d \n", j, SAFE_CHAR(ct), jumps[j], jumpf[j]); //
-      // }                                                                                   //
-      // #endif                                                                              //
-      // // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                //
-      /////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////
+// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                //
+// #ifdef DEBUG                                                                        //
+// if (DO_PRINT) {                                                                     //
+// printf("    j = %d   ct = '%s'  %2d %2d \n", j, SAFE_CHAR(ct), jumps[j], jumpf[j]); //
+// }                                                                                   //
+// #endif                                                                              //
+// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                //
+/////////////////////////////////////////////////////////////////////////////////////////
 
 
 //2020-10-22 00:19:34
