@@ -121,7 +121,7 @@
 //  debugging and run built-in tests.
 // ___________________________________________________________________
 
-#define DEBUG
+// #define DEBUG
 
 #include <stdio.h>  // printf
 #include <stdlib.h> // malloc, free
