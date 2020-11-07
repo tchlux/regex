@@ -12,7 +12,7 @@ A fast regular expression matcher written in C and accessible from Python3.
   Install the latest stable release to Python with:
 
 ```bash
-pip install https://github.com/tchlux/regex/archive/1.0.0.zip
+pip install https://github.com/tchlux/regex/archive/1.1.0.zip
 ```
 
   In order to install the current files in this repository
