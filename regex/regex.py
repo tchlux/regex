@@ -10,22 +10,43 @@
 
 ''' 
 
-# TODO:
+#  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+# 
+#                         Python development
+# 
+# 
+#   write `fmatch` function to go with the existing
+#   `match`, `matcha`, and `fmatcha` functions.
+# 
+#   add parallelism into the C library code, including a file walk,
+#   to offer the full `frex` stack within the C code.
 # 
 #   fix all documentation to align with the current structure
 # 
-#   build some other code that uses "match" and make sure it works as
-#   would be expected, measure performance to see what's slow
+#   write a C function for translating from classic regular
+#   expressions into fast regular expressions
 # 
 #   default regex library has a `finditer` command that iterates over
 #   matches and streams bytes to the regular experssion library from
 #   a buffer, can that be done here?
+#   ^^ write a smatch and sfmatch that do 'stream' style matching,
+#      being given a start index and number of bytes to parse,
+#      maintaining a global state that is used for repeated calls to
+#      the same C function
 # 
-#   transfer bulk of "match_file" into a C function "matcha" return
-#   "(n_matches, starts, ends)" (supports nonoverlapping to start)
-#   ^^ this might not be worth the effort, as this Python code only
-#      runs on successful matches, which are infrequent
-#   
+#   create a Python test case that would reveal any memory leak in the
+#   returned allocatable arrays from the C library
+# 
+#   look into building c extensions automatically on any platform,
+#   some compilation customization will need to be done for windows
+#   ^^ should I support something I don't plan on using myself?
+# 
+#   write a "summary" of the algorithm in HTML with embedded SVG files
+#   and a theoretic description
+# 
+#   build some other code that uses "match" and make sure it works as
+#   would be expected, measure performance to see what's slow
+# 
 #   use Pool.map instead of the homegrown solution, remove dependency
 #   on the parallel map code <- the Pool.map solution is slower, so
 #   maybe it's best to use the custom matching code. Otherwise, it
@@ -33,12 +54,64 @@
 #   the multiprocessing environment. Then this code will definitely
 #   not work on Windows.
 # 
-#   look into building c extensions automatically on any platform,
-#   some compilation customization will need to be done for windows
-#   ^^ should I support something I don't plan on using myself?
-# 
 #   convert things that are not bytes nor strings into strings using
 #   the "str" function inside of `match`?
+#
+#   make the test code automatically run when the code is compiled,
+#   checking for correct compilation
+# 
+#   regex line based mode from the command line
+# 
+#   regex invert match from the command line (default to activate line based mode)
+# 
+#  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# 
+#                            C development
+# 
+# 
+#   If the "start" index hasn't changed, don't add another match (for
+#   `matcha` type operations, causes too many overlapping matches).
+# 
+#  Make this a pure C executable, place all Python functionality into
+#   this file when compiled (without DEBUG).
+# 
+#  Swap out DEBUG for DEVELOP.
+# 
+#  Refactor into four functions:
+#    match -- find first regex match in a string
+#    matcha -- find all regex matches in a string
+#    matchs -- stream string matches by making repeated calls to same function
+#    fmatch -- find the first regex match in a file
+#    fmatcha -- find all regex matches in a file
+#    fmatchs -- stream file matches by making repeated calls to same function
+#    imatch -- find the first match from standard input and exit
+#    imatcha -- find all matches from standard input
+#    imatchs -- stream matches from standard input
+#    frex -- file regular experession search utility, like `grep` but better
+#            parallel (num cores) or serial
+#            recurse into directories or not
+#            provide path names or path patterns
+#            optional redirect from standard in input
+#            translate (most) standard regexes or give error message
+#            parallel `fmatchs` (`imatchs`) that prints output to
+#              standard output, or specified file object
+# 
+#  Write tests for `fmatch`.
+# 
+#  Rescan comments and update all documenation throughout.
+# 
+#  Identify ways to reduce size of code within reason, should some
+#   things be abstracted as functions to save repetition?
+# 
+#  Write `randre` that generates a random string that matches the
+#   given regular expression, tile the space of matches so that
+#   all the shortest matches come first, then longer ones
+#    
+#  Find way to pass in arbitrary "next token" function to the match
+#   function, that way `match` and `matcha` can all go through one
+#   function whether given a character array or a file
+# 
+#  ___________________________________________________________________
 
 
 # Get the version number from the setup file
@@ -90,7 +163,8 @@ def translate_regex(regex, case_sensitive=True):
         # Add a ".*" to the front of the regex if the beginning of the
         # string was not explicitly desired in the match pattern.
         if (regex[0] == "^"): regex = regex[1:]
-        elif ((regex[0] != ".") or (regex[1] != '*')): regex = ".*" + regex
+        elif ((len(regex) < 2) or (regex[0] != ".") or (regex[1] != '*')): 
+            regex = ".*" + regex
         # Add a "{.}" to the end of the regex if the end of the string
         # was explicitly requested in the pattern.
         if (regex[-1] == "$"): regex = regex[:-1] + "{.}"
@@ -197,10 +271,48 @@ def match(regex, string, **translate_kwargs):
     # Return the values from the C library (translating them appropriately)
     return translate_return_values(regex, start.value, end.value)
 
+# Get all matches for a regex.
+def matcha(regex, string, **translate_kwargs):
+    # Use a C utility to scal the file for all matches.
+    import ctypes
+    # Translate the regular expression to expected syntax.
+    regex = translate_regex(regex, **translate_kwargs)
+    # Call the C utillity.
+    #   initialize memory storage for the start and end of a match
+    n = ctypes.c_int()
+    starts = ctypes.c_void_p()
+    ends = ctypes.c_void_p()
+    #   convert strings into character arrays
+    if (type(regex) == str): regex = regex.encode("utf-8")
+    if (type(string) == str): string = string.encode("utf-8")
+    c_regex = ctypes.c_char_p(regex);
+    c_string = ctypes.c_char_p(string);
+    #   execute the C function
+    clib.matcha(c_regex, c_string, ctypes.byref(n),
+                ctypes.byref(starts), ctypes.byref(ends))
+    # Get the number of matches.
+    n = n.value
+    # Return the values from the C library (translating them appropriately)
+    if (n == 0): return [], []
+    elif (n < 0):
+        if (n == -2): raise(TypeError("`matcha` must be provided with a nonempty string."))
+        elif (n == -1):
+            starts = (ctypes.c_int*1).from_address(starts.value)
+            ends = (ctypes.c_int*1).from_address(ends.value)
+            result = translate_return_values(regex, starts[0], ends[0])
+            # ^^ this might raise an error, otherwise it's a no match
+            if (result == None):    return [], []
+            elif (result == (0,0)): raise(RegexError("`matcha` requires nonempty regular expression."))
+            else:                   raise(NotImplementedError)
+    else:
+        starts = (ctypes.c_int*n).from_address(starts.value)
+        ends = (ctypes.c_int*n).from_address(ends.value)
+    return list(starts), list(ends)
+
 
 # Given a path to a file, search for all nonoverlapping matches in the
 # file and return the count of number of matches and a summary string.
-def match_file(path, regex, ascii_ratio=0.7, **translate_kwargs):
+def fmatcha(path, regex, ascii_ratio=0.7, **translate_kwargs):
     # Make sure the file exists.
     if (not os.path.exists(path)): return path, 0, ""
     # Use a C utility to scal the file for all matches.
@@ -220,9 +332,9 @@ def match_file(path, regex, ascii_ratio=0.7, **translate_kwargs):
     c_regex = ctypes.c_char_p(regex);
     c_path = ctypes.c_char_p(path);
     #   execute the C function
-    clib.match_file(c_regex, c_path, ctypes.byref(n),
-                    ctypes.byref(starts), ctypes.byref(ends),
-                    ctypes.byref(lines), min_ascii_ratio)
+    clib.fmatcha(c_regex, c_path, ctypes.byref(n),
+                 ctypes.byref(starts), ctypes.byref(ends),
+                 ctypes.byref(lines), min_ascii_ratio)
     n = n.value
     path = str(path, 'utf-8')
     # Return the values from the C library (translating them appropriately)
@@ -240,7 +352,7 @@ def match_file(path, regex, ascii_ratio=0.7, **translate_kwargs):
             # ^^ this might raise an error, otherwise it's a no match
             if (result == None): return path, 0, f"  no matches in '{path}'"
             elif (result == (0,0)):
-                raise(RegexError("`match_file` requires nonempty regular expression."))
+                raise(RegexError("`fmatcha` requires nonempty regular expression."))
             else:
                 raise(NotImplementedError)
     else:
@@ -292,11 +404,11 @@ def frex(regex, *path_patterns, curdir=".", recursive=True,
             paths.append(path)
     # Perform the search over all the candidate paths (in parallel).
     if parallel:
-        from regex import match_file as p_match_file
+        from regex import fmatcha as p_fmatcha
         from regex.parallel import map as p_map
-        match_iterator = p_map(p_match_file, paths, args=(regex,), kwargs=translate_kwargs)
+        match_iterator = p_map(p_fmatcha, paths, args=(regex,), kwargs=translate_kwargs)
     else:
-        match_iterator = (match_file(p, regex, **translate_kwargs) for p in paths)
+        match_iterator = (fmatcha(p, regex, **translate_kwargs) for p in paths)
     # Cycle over all matches and print the summaries.
     matches = {}
     for p,n,s in match_iterator:
@@ -313,10 +425,6 @@ with open(os.path.join(os.path.dirname(__file__), "regex.c")) as f:
     __doc__ += source_file[start+3:end].replace("\n//", "\n")
     del(source_file, start, end)
 del(f)
-
-
-# When using "from regex import *", only get these variables:
-__all__ = [RegexError, match, frex]
 
 
 # Main for when this is executed as a program.
@@ -360,6 +468,7 @@ documentation including the regular expression language specification.
 ''')
         exit()
     regex = sys.argv[1]
+    print("Given regex:",str([regex])[1:-1])
     print("Using regex:",str([translate_regex(regex,case_sensitive)])[1:-1])
     path_patterns = sys.argv[2:]
     # Set the default path pattern to match all paths.
@@ -374,6 +483,9 @@ documentation including the regular expression language specification.
     else:
         print(f"\n no matches found across {len(matches)} files")
 
+
+# When using "from regex import *", only get these variables:
+__all__ = [RegexError, match, frex, main]
 
 # cd ~/Git/Old/VarSys/3-Dissertation ; python3 -m regex "poetry"
 if __name__ == "__main__":
@@ -467,8 +579,8 @@ if __name__ == "__main__":
 # 
 ############################################################
 # # from regex.parallel import map as map                  #
-# # from regex import match_file                           #
-# # match_iterator = map(match_file, paths, args=(regex,)) #
+# # from regex import fmatcha                          #
+# # match_iterator = map(fmatcha, paths, args=(regex,)) #
 ############################################################
 
 
@@ -532,3 +644,14 @@ if __name__ == "__main__":
     # gc.collect()                                                                               #
     # return path, n_matches, summary                                                            #
     ##############################################################################################
+
+
+# 2020-11-08 23:02:22
+# 
+#######################################################################
+# #   transfer bulk of "fmatcha" into a C function "matcha" return #
+# #   "(n_matches, starts, ends)" (supports nonoverlapping to start)  #
+# #   ^^ this might not be worth the effort, as this Python code only #
+# #      runs on successful matches, which are infrequent             #
+# #                                                                   #
+#######################################################################

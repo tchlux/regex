@@ -87,41 +87,7 @@
 //    {n,m} replace with n occurrences of the preceding group, then
 //            m-n repetitions of the group all with '?'
 // 
-//
-// DEVELOPMENT:
-// 
-//  Make this a pure C executable, place all Python functionality into
-//   this file when compiled (without DEBUG).
-// 
-//  Refactor into four functions:
-//    match -- find first regex match in a string
-//    matcha -- find all regex matches in a string
-//    fmatch -- find the first regex match in a file
-//    fmatcha -- find all regex matches in a file
-// 
-//  Figure out better way to return error codes for `match_file`, so
-//   that there are not warnings about converting an int to int*.
-// 
-//  Write tests for `match_file`.
-// 
-//  Rescan comments and update all documenation throughout.
-// 
-//  Identify ways to reduce size of code within reason, should some
-//   things be abstracted as functions to save repetition?
-// 
-//  Write `randre` that generates a random string that matches the
-//   given regular expression, tile the space of matches so that
-//   all the shortest matches come first, then longer ones
-//    
-//  Find way to pass in arbitrary "next token" function to the match
-//   function, that way `match` and `matcha` can all go through one
-//   function whether given a character array or a file
-// 
-//  Uncomment the line "#define DEBUG" and recompile to enable 
-//  debugging and run built-in tests.
 // ___________________________________________________________________
-
-// #define DEBUG
 
 #include <stdio.h>  // printf
 #include <stdlib.h> // malloc, free
@@ -149,26 +115,6 @@
 //    fre   -- fast regular expressions
 //    freg  -- fast regular expressions
 //    frel  -- fast regular expression library
-
-#ifdef DEBUG
-// Define a global flag for determining if interior prints should be done.
-int DO_PRINT = 0;
-// Define a global character array for safely printing escaped characters.
-char CHAR3[3];
-// Define a function for safely printing a character (escapes whitespace).
-char* SAFE_CHAR(const char c) {
-  CHAR3[0] = '\\';
-  CHAR3[1] = '\0';
-  CHAR3[2] = '\0';
-  if (c == '\n') CHAR3[1] = 'n';
-  else if (c == '\t') CHAR3[1] = 't';
-  else if (c == '\r') CHAR3[1] = 'r';
-  else if (c == '\0') CHAR3[1] = '0';
-  else if (c == EOF ) CHAR3[1] = 'X';
-  else CHAR3[0] = c;
-  return (char *) CHAR3;
-}
-#endif
 
 // Count the number of tokens and groups in a regular expression.
 void _count(const char * regex, int * tokens, int * groups) {
@@ -676,6 +622,7 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
 
 // Do a simple regular experession match.
 void match(const char * regex, const char * string, int * start, int * end) {
+
   // Check for an empty string.
   if (string[0] == '\0') {
     (*start) = EXIT_TOKEN;
@@ -740,6 +687,7 @@ void match(const char * regex, const char * string, int * start, int * end) {
   cstack[ics] = 0; // set the first element in stack to '0'
   active[0] = 0; // set the start index of the first token
   incs[0] = 1; // the first token is in the current stack
+
   // Initialize to "no match".
   (*start) = EXIT_TOKEN;
   (*end) = 0;
@@ -874,10 +822,205 @@ void match(const char * regex, const char * string, int * start, int * end) {
   return;
 } 
 
+// Find all nonoverlapping matches of a regular expression in a string.
+// Return arrays of the starts and ends of matches.
+void matcha(const char * regex, const char * string,
+            int * n, int ** starts, int ** ends) {
+
+  // Check for an empty string.
+  if (string[0] == '\0') {
+    (*n) = -2;
+    return;
+  }
+
+  // Count the number of tokens and groups in this regular expression.
+  (*n) = -1;
+  int n_tokens, n_groups;
+  _count(regex, &n_tokens, &n_groups);
+  // Error mode, fewer than one token (no possible match).
+  if (n_tokens <= 0) {
+    (*starts) = malloc(2 * sizeof(int));
+    (*ends) = (*starts) + 1;
+    // Set the error flag and return.
+    if (n_tokens == 0) {
+      (*starts)[0] = EXIT_TOKEN;
+      (*ends)[0] = REGEX_NO_TOKENS_ERROR;
+    } else {
+      (*starts)[0] = n_tokens;
+      (*ends)[0] = n_groups;
+    }
+    // WARNING: returning pointers to allocated memory for two integers!
+    return;
+  }
+
+  // Set there to be 0 matches, initially.
+  (*n) = 0;
+  // Initialize storage for tracking the current active tokens and
+  // where to jump based on the string being parsed.
+  const int mem_bytes = ((5*n_tokens+1)*sizeof(int) + (4*n_tokens+2)*sizeof(char));
+  int * jumps = malloc(mem_bytes); // jump-to location after success
+  int * jumpf = jumps + n_tokens; // jump-to location after failure
+  int * active = jumpf + n_tokens; // presently active tokens in regex
+  int * cstack = active + n_tokens + 1; // current stack of active tokens
+  int * nstack = cstack + n_tokens; // next stack of active tokens
+  char * tokens = (char*) (nstack + n_tokens); // regex index of each token (character)
+  char * jumpi = tokens + n_tokens + 1; // immediately check next on failure
+  char * incs = jumpi + n_tokens; // token flags for "in current stack"
+  char * inns = incs + n_tokens; // token flags for "in next stack"
+  // Terminate the two character arrays with the null character.
+  tokens[n_tokens] = '\0';
+  jumpi[n_tokens] = '\0';
+
+  // Determine the jump-to tokens upon successful match and failed
+  // match at each token in the regular expression.
+  _set_jump(regex, n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+  // Set all tokens to be inactive, convert ? to * for simplicity.
+  active[n_tokens] = EXIT_TOKEN;
+  for (int j = 0; j < n_tokens; j++) {
+    // convert both "special tokens" to * for speed, exclude all
+    // tokens with jumpi = 1 because those are inside token sets
+    if ((! jumpi[j]) && ((tokens[j] == '?') || (tokens[j] == '|')))
+      tokens[j] = '*';
+    active[j] = EXIT_TOKEN; // token is inactive
+    incs[j] = 0; // token is not in current stack
+    inns[j] = 0; // token is not in next stack
+  }
+
+  // Set the current index in the file.
+  int i = 0; // current index in file
+  int c = string[i]; // get current character in file
+  int ics = 0; // index in current stack
+  int ins = -1; // index in next stack
+  int dest; // index of next token (for jump)
+  void * temp; // temporary pointer (used for transferring nstack to cstack)
+  cstack[ics] = 0; // set the first element in stack to '0'
+  active[0] = 0; // set the start index of the first token
+  incs[0] = 1; // the first token is in the current stack
+
+  // Initialize to "no match".
+  (*starts) = NULL;
+  (*ends) = NULL;
+  int n_found = 0; // number found
+  int s_found = 0; // size of "found" arrays
+
+  // Define an in-line substitution that will be used repeatedly in
+  // a following while loop.
+  #define MATCHA_STACK_NEXT_TOKEN(stack, si, in_stack) \
+    if ((dest >= 0) && (val >= active[dest])) { \
+      if (dest == n_tokens) { \
+        (*n)++; \
+        if (n_found >= s_found) { \
+          if (s_found == 0) s_found = INITIAL_FOUND_SIZE; \
+          else s_found = 2*s_found; \
+          int * new_starts = malloc(3 * s_found * sizeof(int)); \
+          int * new_ends = new_starts + s_found; \
+          for (int index = 0; index < n_found; index++)	{ \
+            new_starts[index] = (*starts)[index]; \
+            new_ends[index] = (*ends)[index]; \
+          } \
+          if ((*starts) != NULL) free(*starts); \
+          (*starts) = new_starts; \
+          (*ends) = new_ends; \
+        } \
+        (*starts)[n_found] = val; \
+        (*ends)[n_found] = (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
+        n_found++; \
+      } else { \
+        if (in_stack[dest] == 0) { \
+          si++; \
+          stack[si] = dest; \
+          in_stack[dest] = 1; \
+        } \
+        active[dest] = val; \
+      } \
+    }                                
+
+  // Start searching for a regular expression match. (the character
+  // 'c' is checked for null value at the end of the loop.
+  do {
+    // Continue popping active elements from the current stack and
+    // checking them for a match and jump conditions, add next tokens
+    // to the next stack.
+    while (ics >= 0) {
+      // Pop next token to check from the stack.
+      const int j = cstack[ics];
+      ics--;
+      incs[j] = 0;
+      // Get the token and the "match start index" for the match that led here.
+      const char ct = tokens[j];
+      int val = active[j];
+      // If this is a special character, add its tokens immediately to
+      // the current stack (to be checked before next charactrer).
+      if ((ct == '*') && (! jumpi[j])) {
+        if (j == 0) val = i; // ignore leading tokens where possible
+	dest = jumps[j];
+	MATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
+	dest = jumpf[j];
+	MATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
+      // Check to see if this token matches the current character.
+      } else if ((c == ct) || ((ct == '.') && (! jumpi[j]) && (c != '\0'))) {
+	dest = jumps[j];
+	MATCHA_STACK_NEXT_TOKEN(nstack, ins, inns);
+      // This token did not match, trigger a jump fail.
+      } else {
+	dest = jumpf[j];
+	// jump immediately on fail if this is not the last token in a token set
+	if (jumpi[j] == 1) { 
+	  MATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
+	// otherwise, put into the "next" stack
+	} else { 
+	  MATCHA_STACK_NEXT_TOKEN(nstack, ins, inns);
+	}
+      }
+    }
+    // Switch out the current stack with the next stack.
+    //   switch stack of token indices
+    temp = (void*) cstack; // store "current stack"
+    cstack = nstack; // set "current stack"
+    ics = ins; // set "index in current stack"
+    nstack = (int*) temp; // set "next stack"
+    //   switch flag arrays of "token in stack"
+    temp = (void*) incs; // store "in current stack"
+    incs = inns; // set "in current stack"
+    inns = (char*) temp; // set "in next stack"
+    ins = -1; // reset the count of elements in "next stack"
+
+    // If the just-parsed character was the end of the string, then break.
+    if (c == '\0') {
+      break;
+    // Get the next character in the string (assuming it's null terminated).
+    } else {
+      i++;
+      c = string[i];
+    }
+  } while (ics >= 0) ; // loop until the active stack is empty
+  free(jumps); // free all memory that was allocated
+  // Check for errors, deallocate 'ends', 'starts', and 'lines' if there are errors.
+  if ((*n) < 0) {
+    if ((*starts) != NULL) free(*starts);
+  // Re-allocate the output arrays to be the exact size of the number of matches.
+  } else {
+    if (n_found < s_found) {
+      s_found = n_found;
+      int * new_starts = malloc(3 * s_found * sizeof(int));
+      int * new_ends = new_starts + s_found;
+      for (int index = 0; index < n_found; index++) {
+        new_starts[index] = (*starts)[index];
+        new_ends[index] = (*ends)[index];
+      }
+      if ((*starts) != NULL) free(*starts);
+      (*starts) = new_starts;
+      (*ends) = new_ends;
+    }
+  }
+  return;
+}
+
+
 
 // Find all nonoverlapping matches of a regular expression in a file
 // at a given path. Return arrays of the starts and ends of matches.
-void match_file(const char * regex, const char * path,
+void fmatcha(const char * regex, const char * path,
 		int * n, int ** starts, int ** ends, int ** lines,
                 float min_ascii_ratio) {
 
@@ -976,7 +1119,7 @@ void match_file(const char * regex, const char * path,
 
   // Define an in-line substitution that will be used repeatedly in
   // a following while loop.
-  #define MATCH_FILE_STACK_NEXT_TOKEN(stack, si, in_stack) \
+  #define FMATCHA_STACK_NEXT_TOKEN(stack, si, in_stack) \
     if ((dest >= 0) && (val >= active[dest])) { \
       if (dest == n_tokens) { \
         (*n)++; \
@@ -1037,22 +1180,22 @@ void match_file(const char * regex, const char * path,
       if ((ct == '*') && (! jumpi[j])) {
         if (j == 0) val = i; // ignore leading tokens where possible
 	dest = jumps[j];
-	MATCH_FILE_STACK_NEXT_TOKEN(cstack, ics, incs);
+	FMATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
 	dest = jumpf[j];
-	MATCH_FILE_STACK_NEXT_TOKEN(cstack, ics, incs);
+	FMATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
       // Check to see if this token matches the current character.
       } else if ((c == ct) || ((ct == '.') && (! jumpi[j]) && (c != EOF))) {
 	dest = jumps[j];
-	MATCH_FILE_STACK_NEXT_TOKEN(nstack, ins, inns);
+	FMATCHA_STACK_NEXT_TOKEN(nstack, ins, inns);
       // This token did not match, trigger a jump fail.
       } else {
 	dest = jumpf[j];
 	// jump immediately on fail if this is not the last token in a token set
 	if (jumpi[j] == 1) { 
-	  MATCH_FILE_STACK_NEXT_TOKEN(cstack, ics, incs);
+	  FMATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
 	// otherwise, put into the "next" stack
 	} else { 
-	  MATCH_FILE_STACK_NEXT_TOKEN(nstack, ins, inns);
+	  FMATCHA_STACK_NEXT_TOKEN(nstack, ins, inns);
 	}
       }
     }
@@ -1132,998 +1275,6 @@ int main(int argc, char * argv[]) {
 }
 #endif
 
-
-// ===================================================================
-//                  BEGIN   T E S T I N G   CODE
-// ===================================================================
-
-
-#ifdef DEBUG
-int run_tests(); // <- actually declared later
-// For testing purposes.
-int main(int argc, char * argv[]) {
-  // =================================================================
-  // Manual test of `match`.. (use "if (1)" to run, "if (0)" to skip)
-  if (0) {
-    // ------------------------------------------
-    // char * regex = "((\r\n)|\r|\n)";
-    // char * string = "\r\n**** \n";
-    // ------------------------------------------
-    // char * regex = "$(({\n}\n?)|(\n?{\n}))*$";
-    // char * string = "$\n  testing \n$";
-    // ------------------------------------------
-    DO_PRINT = 1;
-    char * regex = ".*st{.}";
-    char * string = "| test";
-    int start, end;
-    match(regex, string, &start, &end);
-    printf("==================================================\n\n");
-    // Handle errors.
-    if (start < 0) {
-      if (end < 0) {
-	printf("\nERROR: invalid regular expression, code %d", -end);
-	if (start < -1) {
-	  printf(" error at position %d.\n", -start-1);
-	  printf("  %s\n", regex);
-	  printf("  %*c\n", -start, '^');
-	} else {
-	  printf(".\n");
-	}
-        // Mark the failure in the match with return code.
-        return (1);
-      // No matches found in the search string.
-      } else {
-	printf("no match found\n");
-      }
-      // Matched.
-    } else {
-      printf("match at (%d -> %d)\n", start, end);
-    }
-    // Print out the matched expression.
-    if (start >= 0) {
-      printf("\n\"");
-      for (int j = start; j < end; j++)
-	printf("%c",string[j]);
-      printf("\"\n");
-    }
-    return 0;
-  // =================================================================
-  // Manual test of `match_file`.. (use "if (1)" to run, "if (0)" to skip)
-  } else if (0) {
-    DO_PRINT = 1;
-    char * regex = ".*hehe";
-    // char * path = "regex.so";
-    char * path = "test.txt";
-    int n_matches;
-    int * starts;
-    int * ends;
-    int * lines;
-    float min_ascii_ratio = 0.5;
-    match_file(regex, path, &n_matches, &starts, &ends, &lines, min_ascii_ratio);
-    printf("==================================================\n\n");
-    // Handle errors.
-    if (n_matches == -3) {
-      printf("\nERROR: too many non-ASCII characters in file");
-      return(3);
-    } else if (n_matches == -2) {
-      printf("\nERROR: failed to load file");
-      return(2);
-    } else if (n_matches == -1) {
-      if ((int) starts > 0) {
-        if ((int) ends > 0) {
-          printf("\nERROR: invalid regular expression, code %d", (int) ends);
-          if ((int) starts > 1) {
-            printf(" error at position %d.\n", ((int) starts)-1);
-            printf("  ");
-            for (int i = 0; regex[i] != '\0'; i++)
-              printf("%s", SAFE_CHAR(regex[i]));
-            printf("\n");
-            printf("  %*c\n", ((int) starts), '^');
-          } else {
-            printf(".\n");
-          }
-          // Mark the failure in the match with return code.
-          return (1);
-        // No matches found in the search string.
-        } else {
-          printf("ERROR: unexpected execution flow, (n_matches = -1) and match at (%d -> %d)\n", (int) starts, (int) ends);
-          return(4);
-        }
-      }
-      printf("ERROR: unexpected execution flow, (n_matches = -1) and match at (%d -> %d)\n", (int) starts, (int) ends);
-      return(4);
-    } else {
-      // Print out the matched expression.
-      printf("\n");
-      for (int i = 0; i < n_matches; i++) {
-        printf("  %d -> %d\n", starts[i], ends[i]);
-      }
-      return 0;
-    }
-  // =================================================================
-  } else {
-    return(run_tests());
-  }
-}
-
-int run_tests() {
-  // test data array
-  char * regexes[] = {
-    // Invalid regular expressions.
-    "*abc",
-    "?abc",
-    "|abc",
-    ")abc",
-    "}abc",
-    "]abc",
-    "abc|",
-    "abc|*",
-    "abc|?",
-    "abc|)",
-    "abc|]",
-    "abc|}",
-    "abc**",
-    "abc*?",
-    "abc?*",
-    "abc??",
-    "abc(*",
-    "abc(?",
-    "abc{*",
-    "abc{?",
-    "abc(",
-    "abc{",
-    "abc()",
-    "abc{}",
-    "abc[]",
-    // Valid regular expressions.
-    ".",
-    ".*",
-    "..",
-    " (.|.)*d",
-    ".* .*ad",
-    "abc",
-    ".*abc",
-    ".((a*)|(b*))*.",
-    "(abc)",
-    "[abc]",
-    "{abc}",
-    "{[abc]}",
-    "{{[abc]}}",
-    "[ab][ab]",
-    "{[ab][ab]}",
-    "a*bc",
-    "(ab)*c",
-    "[ab]*c",
-    "{ab}*c",
-    "[a][b]*{[c]}",
-    "{{a}[bcd]}",
-    "a{[bcd]}e",
-    "{{a}[bcd]{e}}",
-    "(a(bc)?)*(d)",
-    "(a(bc*)?)|d",
-    "{a(bc*)?}|d",
-    "{(a(bc*)?)}|d",
-    "(a(bc)?)|(de)",
-    "(a(z.)*)[bc]*d*",
-    "(a(z.)*)[bc]*d*{e}f?g",
-    "(a(z.)*)[bc]*d*{e}f?g|h",
-    "({({ab}c?)*d}|(e(fg)?))",
-    "({({[ab]}c?)*d}|(e(fg)?))",
-    "({(a)({[bc]}d?e)*(f)}|g(hi)?)",
-    "[*][*]*{[*]}",
-    "[[][[]",
-    ".*end{.}",
-    "[|]",
-    // Last test regular expression must be empty!
-    ""
-  };
-
-  // test data array
-  int true_n_tokens[] = {
-    // Invalid regular expressions.
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -4,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    // Valid regular expressions    
-    1,
-    2,
-    2,
-    6,
-    7,
-    3,
-    5,
-    8,
-    3,
-    3,
-    3,
-    3,
-    3,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    5,
-    5,
-    6,
-    7,
-    7,
-    7,
-    7,
-    9,
-    13,
-    15,
-    11,
-    11,
-    13,
-    4,
-    2,
-    6,
-    1,
-    // Last test regular expression must be empty!
-    0
-  };
-
-  // test data array
-  int true_n_groups[] = {
-    // Invalid regular expressions.
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_UNCLOSED_GROUP_ERROR,
-    REGEX_UNCLOSED_GROUP_ERROR,
-    REGEX_EMPTY_GROUP_ERROR,
-    REGEX_EMPTY_GROUP_ERROR,
-    REGEX_EMPTY_GROUP_ERROR,
-    // Valid regular expressions    
-    0,
-    0,
-    0,
-    1,
-    0,
-    0,
-    0,
-    3,
-    1,
-    1,
-    1,
-    2,
-    3,
-    2,
-    3,
-    0,
-    1,
-    1,
-    1,
-    4,
-    3,
-    2,
-    4,
-    3,
-    2,
-    2,
-    3,
-    3,
-    3,
-    4,
-    4,
-    6,
-    7,
-    8,
-    4,
-    2,
-    1,
-    1,
-    // Last test regular expression must be empty!
-    0
-  };
-
-  // test data array
-  char * true_tokens[] = {
-    // Invalid regular expressions.
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    // Valid regular expressions.
-    ".",
-    "*.",
-    "..",
-    " *|..d",
-    "*. *.ad",
-    "abc",
-    "*.abc",
-    ".*|*a*b.",
-    "abc",
-    "abc",
-    "abc",
-    "abc",
-    "abc",
-    "abab",
-    "abab",
-    "*abc",
-    "*abc",
-    "*abc",
-    "*abc",
-    "a*bc",
-    "abcd",
-    "abcde",
-    "abcde",
-    "*a?bcd",
-    "|a?b*cd",
-    "|a?b*cd",
-    "|a?b*cd",
-    "|a?bcde",
-    "a*z.*bc*d",
-    "a*z.*bc*de?fg",
-    "a*z.*bc*de?f|gh",
-    "|*ab?cde?fg",
-    "|*ab?cde?fg",
-    "|a*bc?defg?hi",
-    "****",
-    "[[",
-    "*.end.",
-    "|",
-    // Last test regular expression must be empty!
-    ""
-  };
-
-  // test data array
-  int true_jumps[] = {
-    // Invalid regular expressions.
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // Valid regular expressions.
-    1,
-    1,0,
-    1,2,
-    1,2,3,1,1,6,
-    1,0,3,4,3,6,7,
-    1,2,3,
-    1,0,3,4,5,
-    1,2,3,4,3,6,5,8,
-    1,2,3,
-    3,3,3,
-    -1,-1,-1,
-    -1,-1,-1,
-    3,3,3,
-    2,2,4,4,
-    -1,-1,-1,-1,
-    1,0,3,4,
-    1,2,0,4,
-    1,0,0,4,
-    1,-1,-1,4,
-    1,2,1,-1,
-    1,-1,-1,-1,
-    1,-1,-1,-1,5,
-    1,-1,-1,-1,5,
-    1,2,3,4,0,6,
-    1,2,3,4,5,4,7,
-    1,-1,3,-1,5,-1,7,
-    1,-1,3,-1,5,-1,7,
-    1,2,3,4,7,6,7,
-    1,2,3,1,5,4,4,8,7,
-    1,2,3,1,5,4,4,8,7,-1,11,12,13,
-    1,2,3,1,5,4,4,8,7,-1,11,12,13,15,15,
-    1,2,3,4,5,-1,-1,8,9,10,11,
-    1,2,4,4,5,-1,-1,8,9,10,11,
-    1,-1,3,5,5,6,-1,-1,-1,10,11,12,13,
-    1,2,1,-1,
-    1,2,
-    1,0,3,4,5,-1,
-    1,
-    // Last test regular expression must be empty!
-    // {}
-  };
-
-  // test data array
-  int true_jumpf[] = {
-    // Invalid regular expressions.
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // Valid regular expressions.
-    -1,
-    2,-1,
-    -1,-1,
-    -1,5,4,-1,-1,-1,
-    2,-1,-1,5,-1,-1,-1,
-    -1,-1,-1,
-    2,-1,-1,-1,-1,
-    -1,7,5,7,-1,1,-1,-1,
-    -1,-1,-1,
-    1,2,-1,
-    1,2,3,
-    1,2,3,
-    1,2,-1,
-    1,-1,3,-1,
-    1,2,3,4,
-    2,-1,-1,-1,
-    3,-1,-1,-1,
-    3,2,-1,-1,
-    3,2,0,-1,
-    -1,3,-1,4,
-    -1,2,3,4,
-    -1,2,3,4,-1,
-    -1,2,3,4,-1,
-    5,-1,0,-1,-1,-1,
-    6,-1,7,-1,7,-1,-1,
-    6,2,7,4,7,4,-1,
-    6,2,7,4,7,4,-1,
-    5,-1,7,-1,-1,-1,-1,
-    -1,4,-1,-1,7,6,-1,9,-1,
-    -1,4,-1,-1,7,6,-1,9,-1,10,12,-1,-1,
-    -1,4,-1,-1,7,6,-1,9,-1,10,12,-1,14,-1,-1,
-    7,6,-1,-1,1,1,11,-1,11,-1,-1,
-    7,6,3,-1,1,1,11,-1,11,-1,-1,
-    9,2,8,4,-1,7,7,2,10,-1,13,-1,-1,
-    -1,3,-1,4,
-    -1,-1,
-    2,-1,-1,-1,-1,6,
-    -1,
-    // Last test regular expression must be empty!
-    // {}
-  };
-
-  char true_jumpi[] = {
-    // Invalid regular expressions.
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // Valid regular expressions.
-    0,
-    0,0,
-    0,0,
-    0,0,0,0,0,0,
-    0,0,0,0,0,0,0,
-    0,0,0,
-    0,0,0,0,0,
-    0,0,0,0,0,0,0,0,
-    0,0,0,
-    1,1,2,
-    0,0,0,
-    1,1,2,
-    1,1,2,
-    1,2,1,2,
-    1,2,1,2,
-    0,0,0,0,
-    0,0,0,0,
-    0,1,2,0,
-    0,0,0,0,
-    2,0,2,2,
-    0,1,1,2,
-    0,1,1,2,0,
-    0,1,1,2,0,
-    0,0,0,0,0,0,
-    0,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,
-    0,0,0,0,0,1,2,0,0,
-    0,0,0,0,0,1,2,0,0,0,0,0,0,
-    0,0,0,0,0,1,2,0,0,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,0,0,0,0,
-    0,0,1,2,0,0,0,0,0,0,0,
-    0,0,0,1,2,0,0,0,0,0,0,0,0,
-    2,0,2,2,
-    2,2,
-    0,0,0,0,0,0,
-    2,
-    // Last test regular expression must be empty!
-    //
-  };
-
-  // test data array
-  char * strings[] = {
-    // Invalid regular expressions.
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    // Valid regular expressions.
-    " abc",
-    ".*",
-    "..",
-    " (.|.)*d",
-    ".* .*ad",
-    " abc",
-    "      abc",
-    " aabbb ",
-    "abc",
-    "c",
-    "ddd",
-    "d",
-    "c",
-    "ba",
-    "cd",
-    "aabc",
-    "ababc",
-    "baabc",
-    "zzdc",
-    "ad",
-    "azw",
-    "afe",
-    "age",
-    "abcabcd",
-    "d",
-    "zdb",
-    "d",
-    "abc",
-    "az.bcd",
-    "aztzsbcdfg",
-    "aztzsbcdh",
-    "abdabc",
-    "efg",
-    "gf",
-    "*** test",
-    "[[ test",
-    " does it ever end",
-    "| test",
-    // Last test regular expression must be empty!
-    ""
-  };
-
-  // test data array
-  int match_starts[] = {
-    // Invalid regular expressions.
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -4,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    // Valid regular expressions.
-    0,
-    0,
-    0,
-    0,
-    2,
-    -1,
-    6,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    2,
-    4,
-    4,
-    -1,
-    0,
-    0,
-    0,
-    0,
-    6,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    14,
-    0,
-    //
-    -1
-  };
-
-  // test data array
-  int match_ends[] = {
-    // Invalid regular expressions.
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_UNCLOSED_GROUP_ERROR,
-    REGEX_UNCLOSED_GROUP_ERROR,
-    REGEX_EMPTY_GROUP_ERROR,
-    REGEX_EMPTY_GROUP_ERROR,
-    REGEX_EMPTY_GROUP_ERROR,
-    // Valid regular expressions.
-    1,
-    0,
-    2,
-    8,
-    7,
-    0,
-    9,
-    2,
-    3,
-    1,
-    3,
-    1,
-    1,
-    2,
-    2,
-    4,
-    5,
-    5,
-    0,
-    2,
-    2,
-    3,
-    3,
-    7,
-    1,
-    1,
-    1,
-    1,
-    1,
-    10,
-    9,
-    1,
-    1,
-    1,
-    4,
-    2,
-    18,
-    1,
-    //
-    STRING_EMPTY_ERROR
-  };
-
-
-  int done = 0;
-  int i = -1;  // test index
-  int ji = -1; // index in jumps / jumpf / jumpi
-  while (done == 0) {
-    i++; // increment test index counter
-
-    // ===============================================================
-    //                          _count     
-    // 
-    // Count the number of tokens and groups in this regular expression.
-    int n_tokens, n_groups;
-    _count(regexes[i], &n_tokens, &n_groups);
-
-    // Verify the number of tokens and the number of groups..
-    if (n_tokens != true_n_tokens[i]) {
-      printf("\nRegex: '");
-      for (int j = 0; regexes[i][j] != '\0'; j++) {
-	printf("%s", SAFE_CHAR(regexes[i][j]));
-      }
-      printf("'\n\n");
-      printf("ERROR: Wrong number of tokens returned by _count.\n");
-      printf(" expected %d\n", true_n_tokens[i]);
-      printf(" received %d\n", n_tokens);
-      return(1);
-    } else if (n_groups != true_n_groups[i]) {
-      printf("\nRegex: '");
-      for (int j = 0; regexes[i][j] != '\0'; j++) {
-	printf("%s", SAFE_CHAR(regexes[i][j]));
-      }
-      printf("'\n\n");
-      printf("ERROR: Wrong number of groups returned by _count.\n");
-      printf(" expected %d\n", true_n_groups[i]);
-      printf(" received %d\n", n_groups);
-      return(2);
-    }
-    // ---------------------------------------------------------------
-
-    if (n_tokens > 0) {
-    // ===============================================================
-    //                          _set_jump     
-    // 
-    // Initialize storage for tracking the current active tokens and
-    // where to jump based on the string being parsed.
-    const int mem_bytes = (2*n_tokens*sizeof(int) + 2*(n_tokens+1)*sizeof(char));
-    int * jumps = malloc(mem_bytes); // jump-to location after success
-    int * jumpf = jumps + n_tokens; // jump-to location after failure
-    char * tokens = (char*) (jumpf + n_tokens); // regex index of each token (character)
-    char * jumpi = tokens + n_tokens + 1; // immediately check next on failure
-    // Terminate the two character arrays with the null character.
-    tokens[n_tokens] = '\0';
-    jumpi[n_tokens] = '\0';
-
-    // Determine the jump-to tokens upon successful match and failed
-    // match at each token in the regular expression.
-    _set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
-
-    // Verify the the tokens, jumps, jumpf, and jumpi..
-    for (int j = 0; j < n_tokens; j++) {
-      ji++; // (increment the test-wide counter for jumps)
-      if (tokens[j] != true_tokens[i][j]) {
-	printf("\nRegex: '");
-	for (int j = 0; regexes[i][j] != '\0'; j++) {
-	  printf("%s", SAFE_CHAR(regexes[i][j]));
-	}
-	printf("'\n\n");
-	// Re-run the code with debug printing enabled.
-	DO_PRINT = 1;
-	_set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
-	printf("\n");
-	printf("ERROR: Wrong TOKEN returned by _set_jump.\n");
-	printf(" expected '%s' as token %d\n", SAFE_CHAR(true_tokens[i][j]), j);
-	printf(" received '%s'\n", SAFE_CHAR(tokens[j]));
-	return(3);
-      } else if (jumps[j] != true_jumps[ji]) {
-	printf("\nRegex: '");
-	for (int j = 0; regexes[i][j] != '\0'; j++) {
-	  printf("%s", SAFE_CHAR(regexes[i][j]));
-	}
-	printf("'\n");
-	// Re-run the code with debug printing enabled.
-	DO_PRINT = 1;
-	_set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
-	printf("\n");
-	printf("ERROR: Wrong JUMP S returned by _set_jump.\n");
-	printf(" expected %d in col 0, row %d\n", true_jumps[ji], j);
-	printf(" received %d\n", jumps[j]);
-	return(4);
-      } else if (jumpf[j] != true_jumpf[ji]) {
-	printf("\nRegex: '");
-	for (int j = 0; regexes[i][j] != '\0'; j++) {
-	  printf("%s", SAFE_CHAR(regexes[i][j]));
-	}
-	printf("'\n");
-	// Re-run the code with debug printing enabled.
-	DO_PRINT = 1;
-	_set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
-	printf("\n");
-	printf("ERROR: Wrong JUMP F returned by _set_jump.\n");
-	printf(" expected %d in col 1, row %d\n", true_jumpf[ji], j);
-	printf(" received %d\n", jumpf[j]);
-	return(5);
-      } else if (jumpi[j] != true_jumpi[ji]) {
-	printf("\nRegex: '");
-	for (int j = 0; regexes[i][j] != '\0'; j++) {
-	  printf("%s", SAFE_CHAR(regexes[i][j]));
-	}
-	printf("'\n");
-	// Re-run the code with debug printing enabled.
-	DO_PRINT = 1;
-	_set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
-	printf("\n");
-	printf("ERROR: Wrong JUMP I returned by _set_jump.\n");
-	printf(" expected %d in col 2, row %d\n", true_jumpi[ji], j);
-	printf(" received %d\n", jumpi[j]);
-	return(6);
-      }
-    }
-    free(jumps); // free the allocated memory
-    }
-    // -------------------------------------------------------------
-
-
-    // =============================================================
-    //                          match     
-    // 
-    int start;
-    int end;
-    match(regexes[i], strings[i], &start, &end);
-
-    if (start != match_starts[i]) {
-    	DO_PRINT = 1;
-    	match(regexes[i], strings[i], &start, &end);
-    	printf("\nString: '");
-    	for (int j = 0; strings[i][j] != '\0'; j++) {
-    	  printf("%s", SAFE_CHAR(strings[i][j]));
-    	}
-	printf("'\n\n");
-	printf("ERROR: Bad match START returned by match.\n");
-	printf(" expected %d\n", match_starts[i]);
-	printf(" received %d\n", start);
-    	return(7);
-    } else if (end != match_ends[i]) {
-    	DO_PRINT = 1;
-    	match(regexes[i], strings[i], &start, &end);	
-    	printf("\nString: '");
-    	for (int j = 0; strings[i][j] != '\0'; j++) {
-    	  printf("%s", SAFE_CHAR(strings[i][j]));
-    	}
-	printf("'\n\n");
-	printf("ERROR: Bad match END returned by match.\n");
-	printf(" expected %d\n", match_ends[i]);
-	printf(" received %d\n", end);
-    	return(8);
-    }
-
-    // -------------------------------------------------------------
-
-    // Exit once the empty regex has been verified.
-    if (regexes[i][0] == '\0') done++;
-  }
-  
-  printf("\n All tests PASSED.\n");
-  // Successful return.
-  return(0);
-}
-
-#endif
 
 
 //2020-10-21 23:13:29
