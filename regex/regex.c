@@ -106,15 +106,8 @@
 #define INITIAL_FOUND_SIZE 4
 //      ^^ default size of the arrays that store all regex matches
 
-//  Name? 
-//    regex -- regular expression library
+//  Name:
 //    frex  -- fast regular expressions (frexi for case insensitive)
-//    rexl  -- regular expression library (rexi for case insensitive)
-//    rex   -- regular expressions (rexi for case insensitive)
-//    rel   -- regular expression library (reli for case insensitive)
-//    fre   -- fast regular expressions
-//    freg  -- fast regular expressions
-//    frel  -- fast regular expression library
 
 // Count the number of tokens and groups in a regular expression.
 void _count(const char * regex, int * tokens, int * groups) {
