@@ -68,7 +68,7 @@ python3 regex.py "<search-pattern>" "<path-pattern-1>" ["<path-pattern-2>"] [...
   when a character in the searched string does and doesn't match the
   active token in the regular expression.
 
-## DOCUMENTATION FROM `regex.c`
+## LANGUAGE SPECIFICATION FROM [`regex.c`](regex/regex.c)
 
 ```C
 //  This file provides code for very fast regular expression matching
