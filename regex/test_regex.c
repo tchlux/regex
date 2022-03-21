@@ -1,6 +1,9 @@
+// cc -o test_regex test_regex.c && ./test_regex * ; rm -f ./test_regex
+
 #define DEBUG
 
 #ifdef DEBUG
+#include <stdio.h>  // EOF
 // Define a global flag for determining if interior prints should be done.
 int DO_PRINT = 0;
 // Define a global character array for safely printing escaped characters.
@@ -14,7 +17,7 @@ char* SAFE_CHAR(const char c) {
   else if (c == '\t') CHAR3[1] = 't';
   else if (c == '\r') CHAR3[1] = 'r';
   else if (c == '\0') CHAR3[1] = '0';
-  else if (c == EOF ) CHAR3[1] = 'X';
+  else if (c == EOF)  CHAR3[1] = 'X';
   else CHAR3[0] = c;
   return (char *) CHAR3;
 }
@@ -52,19 +55,19 @@ int main(int argc, char * argv[]) {
     // Handle errors.
     if (start < 0) {
       if (end < 0) {
-	printf("\nERROR: invalid regular expression, code %d", -end);
-	if (start < -1) {
-	  printf(" error at position %d.\n", -start-1);
-	  printf("  %s\n", regex);
-	  printf("  %*c\n", -start, '^');
-	} else {
-	  printf(".\n");
-	}
+      printf("\nERROR: invalid regular expression, code %d", -end);
+      if (start < -1) {
+        printf(" error at position %d.\n", -start-1);
+        printf("  %s\n", regex);
+        printf("  %*c\n", -start, '^');
+      } else {
+        printf(".\n");
+      }
         // Mark the failure in the match with return code.
         return (1);
       // No matches found in the search string.
       } else {
-	printf("no match found\n");
+      printf("no match found\n");
       }
       // Matched.
     } else {
@@ -74,7 +77,7 @@ int main(int argc, char * argv[]) {
     if (start >= 0) {
       printf("\n\"");
       for (int j = start; j < end; j++)
-	printf("%c",string[j]);
+      printf("%c",string[j]);
       printf("\"\n");
     }
     return 0;
@@ -103,7 +106,7 @@ int main(int argc, char * argv[]) {
       if (starts[0] > 0) {
         if (ends[0] > 0) {
           printf("\nERROR: invalid regular expression, code %d", ends[0]);
-          if ((int) starts[0] > 1) {
+          if ((long) starts[0] > 1) {
             printf(" error at position %d.\n", starts[0]-1);
             printf("  ");
             for (int i = 0; regex[i] != '\0'; i++)
@@ -121,7 +124,7 @@ int main(int argc, char * argv[]) {
           return(4);
         }
       }
-      printf("ERROR: unexpected execution flow, (n_matches = -1) and match at (%d -> %d)\n", (int) starts, (int) ends);
+      printf("ERROR: unexpected execution flow, (n_matches = -1) and match at (%ld -> %ld)\n", (long) starts, (long) ends);
       return(4);
     } else {
       // Print out the matched expression.
@@ -203,6 +206,7 @@ int run_tests() {
     "({(a)({[bc]}d?e)*(f)}|g(hi)?)",
     "[*][*]*{[*]}",
     "[[][[]",
+       ".*[)][)]",
     ".*end{.}",
     "[|]",
     // Last test regular expression must be empty!
@@ -274,6 +278,7 @@ int run_tests() {
     13,
     4,
     2,
+       4,
     6,
     1,
     // Last test regular expression must be empty!
@@ -345,6 +350,7 @@ int run_tests() {
     8,
     4,
     2,
+       2,
     1,
     1,
     // Last test regular expression must be empty!
@@ -416,6 +422,7 @@ int run_tests() {
     "|a*bc?defg?hi",
     "****",
     "[[",
+       "*.))",
     "*.end.",
     "|",
     // Last test regular expression must be empty!
@@ -487,6 +494,7 @@ int run_tests() {
     1,-1,3,5,5,6,-1,-1,-1,10,11,12,13,
     1,2,1,-1,
     1,2,
+       1,0,3,4,
     1,0,3,4,5,-1,
     1,
     // Last test regular expression must be empty!
@@ -558,6 +566,7 @@ int run_tests() {
     9,2,8,4,-1,7,7,2,10,-1,13,-1,-1,
     -1,3,-1,4,
     -1,-1,
+       2,-1,-1,-1,
     2,-1,-1,-1,-1,6,
     -1,
     // Last test regular expression must be empty!
@@ -628,6 +637,7 @@ int run_tests() {
     0,0,0,1,2,0,0,0,0,0,0,0,0,
     2,0,2,2,
     2,2,
+       0,0,2,2,
     0,0,0,0,0,0,
     2,
     // Last test regular expression must be empty!
@@ -699,6 +709,7 @@ int run_tests() {
     "gf",
     "*** test",
     "[[ test",
+       "test ))",
     " does it ever end",
     "| test",
     // Last test regular expression must be empty!
@@ -770,6 +781,7 @@ int run_tests() {
     0,
     0,
     0,
+    5,
     14,
     0,
     //
@@ -841,6 +853,7 @@ int run_tests() {
     1,
     4,
     2,
+       2,
     18,
     1,
     //
@@ -865,7 +878,7 @@ int run_tests() {
     if (n_tokens != true_n_tokens[i]) {
       printf("\nRegex: '");
       for (int j = 0; regexes[i][j] != '\0'; j++) {
-	printf("%s", SAFE_CHAR(regexes[i][j]));
+      printf("%s", SAFE_CHAR(regexes[i][j]));
       }
       printf("'\n\n");
       printf("ERROR: Wrong number of tokens returned by _count.\n");
@@ -875,7 +888,7 @@ int run_tests() {
     } else if (n_groups != true_n_groups[i]) {
       printf("\nRegex: '");
       for (int j = 0; regexes[i][j] != '\0'; j++) {
-	printf("%s", SAFE_CHAR(regexes[i][j]));
+      printf("%s", SAFE_CHAR(regexes[i][j]));
       }
       printf("'\n\n");
       printf("ERROR: Wrong number of groups returned by _count.\n");
@@ -908,61 +921,61 @@ int run_tests() {
     for (int j = 0; j < n_tokens; j++) {
       ji++; // (increment the test-wide counter for jumps)
       if (tokens[j] != true_tokens[i][j]) {
-	printf("\nRegex: '");
-	for (int j = 0; regexes[i][j] != '\0'; j++) {
-	  printf("%s", SAFE_CHAR(regexes[i][j]));
-	}
-	printf("'\n\n");
-	// Re-run the code with debug printing enabled.
-	DO_PRINT = 1;
-	_set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
-	printf("\n");
-	printf("ERROR: Wrong TOKEN returned by _set_jump.\n");
-	printf(" expected '%s' as token %d\n", SAFE_CHAR(true_tokens[i][j]), j);
-	printf(" received '%s'\n", SAFE_CHAR(tokens[j]));
-	return(3);
+      printf("\nRegex: '");
+      for (int j = 0; regexes[i][j] != '\0'; j++) {
+        printf("%s", SAFE_CHAR(regexes[i][j]));
+      }
+      printf("'\n\n");
+      // Re-run the code with debug printing enabled.
+      DO_PRINT = 1;
+      _set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+      printf("\n");
+      printf("ERROR: Wrong TOKEN returned by _set_jump.\n");
+      printf(" expected '%s' as token %d\n", SAFE_CHAR(true_tokens[i][j]), j);
+      printf(" received '%s'\n", SAFE_CHAR(tokens[j]));
+      return(3);
       } else if (jumps[j] != true_jumps[ji]) {
-	printf("\nRegex: '");
-	for (int j = 0; regexes[i][j] != '\0'; j++) {
-	  printf("%s", SAFE_CHAR(regexes[i][j]));
-	}
-	printf("'\n");
-	// Re-run the code with debug printing enabled.
-	DO_PRINT = 1;
-	_set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
-	printf("\n");
-	printf("ERROR: Wrong JUMP S returned by _set_jump.\n");
-	printf(" expected %d in col 0, row %d\n", true_jumps[ji], j);
-	printf(" received %d\n", jumps[j]);
-	return(4);
+      printf("\nRegex: '");
+      for (int j = 0; regexes[i][j] != '\0'; j++) {
+        printf("%s", SAFE_CHAR(regexes[i][j]));
+      }
+      printf("'\n");
+      // Re-run the code with debug printing enabled.
+      DO_PRINT = 1;
+      _set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+      printf("\n");
+      printf("ERROR: Wrong JUMP S returned by _set_jump.\n");
+      printf(" expected %d in col 0, row %d\n", true_jumps[ji], j);
+      printf(" received %d\n", jumps[j]);
+      return(4);
       } else if (jumpf[j] != true_jumpf[ji]) {
-	printf("\nRegex: '");
-	for (int j = 0; regexes[i][j] != '\0'; j++) {
-	  printf("%s", SAFE_CHAR(regexes[i][j]));
-	}
-	printf("'\n");
-	// Re-run the code with debug printing enabled.
-	DO_PRINT = 1;
-	_set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
-	printf("\n");
-	printf("ERROR: Wrong JUMP F returned by _set_jump.\n");
-	printf(" expected %d in col 1, row %d\n", true_jumpf[ji], j);
-	printf(" received %d\n", jumpf[j]);
-	return(5);
+      printf("\nRegex: '");
+      for (int j = 0; regexes[i][j] != '\0'; j++) {
+        printf("%s", SAFE_CHAR(regexes[i][j]));
+      }
+      printf("'\n");
+      // Re-run the code with debug printing enabled.
+      DO_PRINT = 1;
+      _set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+      printf("\n");
+      printf("ERROR: Wrong JUMP F returned by _set_jump.\n");
+      printf(" expected %d in col 1, row %d\n", true_jumpf[ji], j);
+      printf(" received %d\n", jumpf[j]);
+      return(5);
       } else if (jumpi[j] != true_jumpi[ji]) {
-	printf("\nRegex: '");
-	for (int j = 0; regexes[i][j] != '\0'; j++) {
-	  printf("%s", SAFE_CHAR(regexes[i][j]));
-	}
-	printf("'\n");
-	// Re-run the code with debug printing enabled.
-	DO_PRINT = 1;
-	_set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
-	printf("\n");
-	printf("ERROR: Wrong JUMP I returned by _set_jump.\n");
-	printf(" expected %d in col 2, row %d\n", true_jumpi[ji], j);
-	printf(" received %d\n", jumpi[j]);
-	return(6);
+      printf("\nRegex: '");
+      for (int j = 0; regexes[i][j] != '\0'; j++) {
+        printf("%s", SAFE_CHAR(regexes[i][j]));
+      }
+      printf("'\n");
+      // Re-run the code with debug printing enabled.
+      DO_PRINT = 1;
+      _set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+      printf("\n");
+      printf("ERROR: Wrong JUMP I returned by _set_jump.\n");
+      printf(" expected %d in col 2, row %d\n", true_jumpi[ji], j);
+      printf(" received %d\n", jumpi[j]);
+      return(6);
       }
     }
     free(jumps); // free the allocated memory
@@ -978,29 +991,29 @@ int run_tests() {
     match(regexes[i], strings[i], &start, &end);
 
     if (start != match_starts[i]) {
-    	DO_PRINT = 1;
-    	match(regexes[i], strings[i], &start, &end);
-    	printf("\nString: '");
-    	for (int j = 0; strings[i][j] != '\0'; j++) {
-    	  printf("%s", SAFE_CHAR(strings[i][j]));
-    	}
-	printf("'\n\n");
-	printf("ERROR: Bad match START returned by match.\n");
-	printf(" expected %d\n", match_starts[i]);
-	printf(" received %d\n", start);
-    	return(7);
+          DO_PRINT = 1;
+          match(regexes[i], strings[i], &start, &end);
+          printf("\nString: '");
+          for (int j = 0; strings[i][j] != '\0'; j++) {
+            printf("%s", SAFE_CHAR(strings[i][j]));
+          }
+      printf("'\n\n");
+      printf("ERROR: Bad match START returned by match.\n");
+      printf(" expected %d\n", match_starts[i]);
+      printf(" received %d\n", start);
+          return(7);
     } else if (end != match_ends[i]) {
-    	DO_PRINT = 1;
-    	match(regexes[i], strings[i], &start, &end);	
-    	printf("\nString: '");
-    	for (int j = 0; strings[i][j] != '\0'; j++) {
-    	  printf("%s", SAFE_CHAR(strings[i][j]));
-    	}
-	printf("'\n\n");
-	printf("ERROR: Bad match END returned by match.\n");
-	printf(" expected %d\n", match_ends[i]);
-	printf(" received %d\n", end);
-    	return(8);
+          DO_PRINT = 1;
+          match(regexes[i], strings[i], &start, &end);      
+          printf("\nString: '");
+          for (int j = 0; strings[i][j] != '\0'; j++) {
+            printf("%s", SAFE_CHAR(strings[i][j]));
+          }
+      printf("'\n\n");
+      printf("ERROR: Bad match END returned by match.\n");
+      printf(" expected %d\n", match_ends[i]);
+      printf(" received %d\n", end);
+          return(8);
     }
 
     // -------------------------------------------------------------

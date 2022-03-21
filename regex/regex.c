@@ -89,7 +89,7 @@
 // 
 // ___________________________________________________________________
 
-#include <stdio.h>  // printf
+#include <stdio.h>  // printf, EOF
 #include <stdlib.h> // malloc, free
 
 #define EXIT_TOKEN -1
@@ -130,46 +130,46 @@ void _count(const char * regex, int * tokens, int * groups) {
       pt = token;
       token = regex[i];
       while ((token != '\0') && (token != ']')) {
-	// One token for this character in the group
-	(*tokens)++;
-	tokens_in_group++;
-	// Increment to next character.
-	i++;
-	pt = token;
-	token = regex[i];
+        // One token for this character in the group
+        (*tokens)++;
+        tokens_in_group++;
+        // Increment to next character.
+        i++;
+        pt = token;
+        token = regex[i];
       }
       // Check for an error in the regular expression.
       if (token == '\0') {
-	(*tokens) = -i-1;
-	(*groups) = REGEX_UNCLOSED_GROUP_ERROR;
-	gc = REGEX_UNCLOSED_GROUP_ERROR;
-	break;
+        (*tokens) = -i-1;
+        (*groups) = REGEX_UNCLOSED_GROUP_ERROR;
+        gc = REGEX_UNCLOSED_GROUP_ERROR;
+        break;
       // Check for an empty group error.
       } else if (tokens_in_group == 0) {
-	(*tokens) = -i-1;
-	(*groups) = REGEX_EMPTY_GROUP_ERROR;
-	gc = REGEX_EMPTY_GROUP_ERROR;
-	break;
+        (*tokens) = -i-1;
+        (*groups) = REGEX_EMPTY_GROUP_ERROR;
+        gc = REGEX_EMPTY_GROUP_ERROR;
+        break;
+      // This group successfully closed.
       } else {
-	// This group successfully closed.
-	gc++;
+        gc++;
       }
     // If this is the beginning of another type of group, count it.
     } else if ((token == '(') || (token == '{')) {
       (*groups)++;
     // Check for invalid regular expressions
     } else if (
-       // starts with a special character
-       ((i == 0) && ((token == ')') || (token == ']') || (token == '}') || 
-		     (token == '*') || (token == '?') || (token == '|'))) ||
-       // illegally placed * or ?
-       ((i > 0) && ((token == '*') || (token == '?')) &&
-	((pt == '*') || (pt == '?') || (pt == '(') || (pt == '{') || (pt == '|'))) ||
-       // illegally placed ), ], or } after a |
-       ((i > 0) && (pt == '|') && ((token == ')') || (token == ']') || (token == '}'))) ||
-       // | at the end of the regex
-       ((token == '|') && (regex[i+1] == '\0'))
-       ) {
+      // starts with a special character
+      ((i == 0) && ((token == ')') || (token == ']') || (token == '}') || 
+                    (token == '*') || (token == '?') || (token == '|'))) ||
+      // illegally placed * or ?
+      ((i > 0) && ((token == '*') || (token == '?')) &&
+       ((pt == '*') || (pt == '?') || (pt == '(') || (pt == '{') || (pt == '|'))) ||
+      // illegally placed ), ], or } after a |
+      ((i > 0) && (pt == '|') && ((token == ')') || (token == ']') || (token == '}'))) ||
+      // | at the end of the regex
+      ((token == '|') && (regex[i+1] == '\0'))
+    ) {
       (*tokens) = -i-1;
       (*groups) = REGEX_SYNTAX_ERROR;
       gc = REGEX_SYNTAX_ERROR;
@@ -179,12 +179,12 @@ void _count(const char * regex, int * tokens, int * groups) {
       gc++;
       // too many closed groups, or an empty group.
       if ( (gc > (*groups)) ||
-	   ((token == ')') && (pt == '(')) ||
-	   ((token == '}') && (pt == '{')) ) {
-	(*tokens) = -i-1;
-	(*groups) = REGEX_EMPTY_GROUP_ERROR;
-	gc = REGEX_EMPTY_GROUP_ERROR;
-	break;
+         ((token == ')') && (pt == '(')) ||
+         ((token == '}') && (pt == '{')) ) {
+      (*tokens) = -i-1;
+      (*groups) = REGEX_EMPTY_GROUP_ERROR;
+      gc = REGEX_EMPTY_GROUP_ERROR;
+      break;
       }
     // If the character is counted (not special), count it as one.
     } else {
@@ -220,7 +220,7 @@ void _count(const char * regex, int * tokens, int * groups) {
 // Read through the regular expression with the (already counted)
 // number of tokens + groups and set the jump conditions.
 void _set_jump(const char * regex, const int n_tokens, int n_groups,
-	       char * tokens, int * jumps, int * jumpf, char * jumpi) {
+             char * tokens, int * jumps, int * jumpf, char * jumpi) {
 
   // Initialize storage for the first and first proceding token of groups.
   int * group_starts = malloc((4*n_groups+n_tokens+2)*sizeof(int) + 2*n_groups*sizeof(char));
@@ -241,7 +241,7 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
     g_mods[j] = DEFAULT_GROUP_MOD;
     redirect[j] = j;
   }
-  // declare the rest of redirect (through 
+  // declare the rest of redirect.
   for (int j = n_groups; j <= n_tokens; j++) redirect[j] = j;
   // (declare the -1 to point to -1)
   redirect[EXIT_TOKEN] = EXIT_TOKEN;
@@ -264,45 +264,45 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
   while (token != '\0') {
     // Look for the beginning of a new group.
     if (((token == '(') || (token == '[') || (token == '{')) && (cgs != '[')) {
-      gi = ng;		     // set current group index
-      cgs = token;	     // set current group start character
-      ng++;		     // increment the number of groups seen
+      gi = ng;              // set current group index
+      cgs = token;          // set current group start character
+      ng++;                 // increment the number of groups seen
       // Push group index and start character into stack.
-      iga++;		    // increase active group index
+      iga++;                // increase active group index
       gi_stack[iga] = gi;   // push group index to stack
       s_stack[iga] = token; // push group start character to stack
       group_starts[gi] = nt; // set the start token for this group
     // Set the end of a group.
     } else if ((iga >= 0) &&
-  	       (((cgs == '(') && (token == ')')) ||
-  		((cgs == '[') && (token == ']')) ||
-  		((cgs == '{') && (token == '}')))) {
+              (((cgs == '(') && (token == ')')) ||
+               ((cgs == '[') && (token == ']')) ||
+               ((cgs == '{') && (token == '}')))) {
       // Close the group, place it into the closed group stack.
       igc++;
       gc_stack[igc] = gi;
       // Check to see if the next character is a modifier.
       token = regex[i+1]; // (can reuse this, it will be overwritten after later i++)
       if ((token == '*') || (token == '?') || (token == '|')) {
-  	g_mods[gi] = token;
+        g_mods[gi] = token;
       }
       // Pop previous group index and start character from stack.
       iga--;
       if (iga >= 0) {
-  	gi = gi_stack[iga];
-  	cgs = s_stack[iga];
+        gi = gi_stack[iga];
+        cgs = s_stack[iga];
       } else {
-  	gi = -1;
-  	cgs = '\0';
+        gi = -1;
+        cgs = '\0';
       }
     // Handle normal tokens.
     } else {
       // if (not special)
       if ((cgs == '[') || ((token != '*') && (token != '?') && (token != '|'))) {
-  	// Set the "next" token for the recently closed groups.
-  	for (int j = 0; j <= igc; j++) {
-  	  group_nexts[gc_stack[j]] = nt;
-  	}
-  	igc = -1; // now no groups are waiting to be closed
+        // Set the "next" token for the recently closed groups.
+        for (int j = 0; j <= igc; j++) {
+          group_nexts[gc_stack[j]] = nt;
+        }
+        igc = -1; // now no groups are waiting to be closed
       }
       tokens[nt] = token; // store the token
       jumps[nt] = nt+1; // initialize jump on successful match to next token
@@ -324,19 +324,19 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
   // DEBUG: Print out the tokens in the order given in the regex.
   #ifdef DEBUG
   if (DO_PRINT) {
-  printf("\nTokens (before prefixing modifiers)\n  ");
-  for (int j = 0; j < n_tokens; j++) printf("%-2s  ", SAFE_CHAR(tokens[j]));
-  printf("\n");
-  if (n_groups > 0) {
+    printf("\nTokens (before prefixing modifiers)\n  ");
+    for (int j = 0; j < n_tokens; j++) printf("%-2s  ", SAFE_CHAR(tokens[j]));
     printf("\n");
-    printf("Groups (before prefixing modifiers)\n");
-    for (int j = 0; j < n_groups; j++) {
-      printf(" %d: %c (%-2d %s)  -->", j, g_mods[j], group_starts[j],
-	     SAFE_CHAR(tokens[group_starts[j]]));
-      printf("  (%-2d %s) \n", group_nexts[j]-1, 
-	     SAFE_CHAR(tokens[group_nexts[j]-1]));
+    if (n_groups > 0) {
+      printf("\n");
+      printf("Groups (before prefixing modifiers)\n");
+      for (int j = 0; j < n_groups; j++) {
+        printf(" %d: %c (%-2d %s)  -->", j, g_mods[j], group_starts[j],
+             SAFE_CHAR(tokens[group_starts[j]]));
+        printf("  (%-2d %s) \n", group_nexts[j]-1, 
+             SAFE_CHAR(tokens[group_nexts[j]-1]));
+      }
     }
-  }
   }
   #endif
   // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -355,54 +355,54 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
   cgs = '\0'; // current group start
   token = regex[i]; // current character
   
-  int gx = 0; // current group shift (number of tokens moved to frotn)
+  int gx = 0; // current group shift (number of tokens moved to front)
   while (token != '\0') {
     // Look for the beginning of a new group.
-    if (((token == '(') || (token == '[') || (token == '{')) &&	(cgs != '[')) {
+    if (((token == '(') || (token == '[') || (token == '{')) && (cgs != '[')) {
       // -------------------------------------------------------------
       // Shift this group start by any active modifiers on containing groups.
       if (gx > 0) group_starts[ng] += gx;
       // -------------------------------------------------------------
-      gi = ng;		     // set current group index
-      cgs = token;	     // set current group start character
-      ng++;		     // increment the number of groups seen
+      gi = ng;              // set current group index
+      cgs = token;          // set current group start character
+      ng++;                 // increment the number of groups seen
       // Push group index and start character into stack.
-      iga++;		    // increase active group index
+      iga++;                // increase active group index
       gi_stack[iga] = gi;   // push group index to stack
       s_stack[iga] = token; // push group start character to stack
       // -------------------------------------------------------------
       // Push a modifier onto the stack if it exists.
       if (g_mods[gi] != DEFAULT_GROUP_MOD) {      
-	gx++; // increase count of prepended modifiers
-	// push starts of all affected groups back by one character
-	tokens[nt] = g_mods[gi]; // store this modifier at the front
-	nt++; // increment the token counter
+        gx++; // increase count of prepended modifiers
+        // push starts of all affected groups back by one character
+        tokens[nt] = g_mods[gi]; // store this modifier at the front
+        nt++; // increment the token counter
       }
       // -------------------------------------------------------------
     // Set the end of a group.
     } else if ((iga >= 0) &&
-  	       (((cgs == '(') && (token == ')')) ||
-  		((cgs == '[') && (token == ']')) ||
-  		((cgs == '{') && (token == '}')))) {
+              (((cgs == '(') && (token == ')')) ||
+               ((cgs == '[') && (token == ']')) ||
+               ((cgs == '{') && (token == '}')))) {
       // decrement the number of shifts that have occurred for prefix
       if (g_mods[gi] != DEFAULT_GROUP_MOD) {
-	gx--;
-	const int last_in_group = nt-1;
-	// Shift all "group_nexts" that are contained in this group.
-	//  WARNING: This makes the algorithmic complexity quadratic
-	//           with the number of nested groups. Unavoidable?
-	for (int j = gi; j < ng; j++)
-	  if (group_nexts[j] < last_in_group)
-	    group_nexts[j]++;
+        gx--;
+        const int last_in_group = nt-1;
+        // Shift all "group_nexts" that are contained in this group.
+        //  WARNING: This makes the algorithmic complexity quadratic
+        //           with the number of nested groups. Unavoidable?
+        for (int j = gi; j < ng; j++)
+          if (group_nexts[j] < last_in_group)
+            group_nexts[j]++;
       }
       // Pop group index from the stack.
       iga--;
       if (iga >= 0) {
-	gi = gi_stack[iga];
-	cgs = s_stack[iga];
+        gi = gi_stack[iga];
+        cgs = s_stack[iga];
       } else {
-	gi = -1;
-	cgs = '\0';
+        gi = -1;
+        cgs = '\0';
       }
     // ---------------------------------------------------------------
     // Handle tokens.
@@ -413,15 +413,15 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
       if (cgs == '[') { // do nothing
       // Not in token set, handle special looping modifiers on single tokens
       } else if ((nx_token == '*') || (nx_token == '?') || (nx_token == '|')) {
-	tokens[nt] = nx_token; // store this modifier at the front
-	nt++; // increment the token counter.
-	i++; // increment the regex index counter
-	tokens[nt+1] = token; // move the original token back one
+        tokens[nt] = nx_token; // store this modifier at the front
+        nt++; // increment the token counter.
+        i++; // increment the regex index counter
+        tokens[nt+1] = token; // move the original token back one
       }
       // store the token, skip specials that were already stored earlier
       if ((cgs == '[') || ((token != '*') && (token != '?') && (token != '|'))) {
-	tokens[nt] = token; // store this token.
-	nt++; // increment the token counter.
+        tokens[nt] = token; // store this token.
+        nt++; // increment the token counter.
       }
     }
     // ---------------------------------------------------------------
@@ -444,9 +444,9 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
     printf("Groups:  (group: mod, start token --> last token)\n");
     for (int j = 0; j < n_groups; j++) {
       printf(" %d: %c (%-2d %s)  -->", j, g_mods[j], group_starts[j],
-	     SAFE_CHAR(tokens[group_starts[j]]));
+           SAFE_CHAR(tokens[group_starts[j]]));
       printf("  (%-2d %s) \n", group_nexts[j]-1, 
-	     SAFE_CHAR(tokens[group_nexts[j]-1]));
+           SAFE_CHAR(tokens[group_nexts[j]-1]));
     }
     printf("\n");
   }
@@ -484,108 +484,107 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
   char neg = 0; // whether or not current section is negated
   while (token != '\0') {
     // Look for the beginning of a new group.
-    if (((token == '(') || (token == '[') || (token == '{')) &&	(cgs != '[')) {
+    if (((token == '(') || (token == '[') || (token == '{')) && (cgs != '[')) {
       // -------------------------------------------------------------
-      gi = ng;		     // set current group index
-      cgs = token;	     // set current group start character
-      ng++;		     // increment the number of groups seen
+      gi = ng;              // set current group index
+      cgs = token;          // set current group start character
+      ng++;                 // increment the number of groups seen
       // Push group index and start character into stack.
-      iga++;		    // increase active group index
+      iga++;                // increase active group index
       gi_stack[iga] = gi;   // push group index to stack
       s_stack[iga] = token; // push group start character to stack
       // -------------------------------------------------------------
       // Push a modifier onto the stack if it exists.
       if (g_mods[gi] != DEFAULT_GROUP_MOD) {      
-	// set jump conditions for modifier (prevent reversal from negation)
-	if (neg) { SET_JUMP(nt, group_nexts[gi], nt+1); }
-	else { SET_JUMP(nt, nt+1, group_nexts[gi]); }
-	redirect[nt] = nt; // reset redirect to completed token
-	nt++; // increment the token counter
-	// assign 'redirect' based on the modifier.
-	if (g_mods[gi] == '*') {
-	  redirect[group_nexts[gi]] = nt-1; // -1 because of nt++ above
-	} else if (g_mods[gi] == '|') {
-	  // search for a group that starts at the first token after this
-	  int j = gi+1;
-	  while ((j < n_groups) && (group_starts[j] < group_nexts[gi])) j++;
-	  // if a group immediately follows (after the |)..
-	  if ((j < n_groups) && (group_starts[j] == group_nexts[gi]))
-	    redirect[group_nexts[gi]] = group_nexts[j];
-	  // otherwise a single token follows (after the |)..
-	  else
-	    redirect[group_nexts[gi]] = group_nexts[gi]+1;
-	}
+        // set jump conditions for modifier (prevent reversal from negation)
+        if (neg) { SET_JUMP(nt, group_nexts[gi], nt+1); }
+        else { SET_JUMP(nt, nt+1, group_nexts[gi]); }
+        redirect[nt] = nt; // reset redirect to completed token
+        nt++; // increment the token counter
+        // assign 'redirect' based on the modifier.
+        if (g_mods[gi] == '*') {
+          redirect[group_nexts[gi]] = nt-1; // -1 because of nt++ above
+        } else if (g_mods[gi] == '|') {
+          // search for a group that starts at the first token after this
+          int j = gi+1;
+          while ((j < n_groups) && (group_starts[j] < group_nexts[gi])) j++;
+          // if a group immediately follows (after the |)..
+          if ((j < n_groups) && (group_starts[j] == group_nexts[gi]))
+            redirect[group_nexts[gi]] = group_nexts[j];
+          // otherwise a single token follows (after the |)..
+          else
+            redirect[group_nexts[gi]] = group_nexts[gi]+1;
+        }
       }
       // Toggle "negated" for negated groups.
       if (cgs == '{') neg = (neg + 1) % 2;
       // -------------------------------------------------------------
     // Set the end of a group.
     } else if ((iga >= 0) &&
-  	       (((cgs == '(') && (token == ')')) ||
-  		((cgs == '[') && (token == ']')) ||
-  		((cgs == '{') && (token == '}')))) {
+               (((cgs == '(') && (token == ')')) ||
+              ((cgs == '[') && (token == ']')) ||
+              ((cgs == '{') && (token == '}')))) {
       // Toggle "negated" for negated groups.
       if (token == '}') neg = (neg + 1) % 2;
       // Pop group index from the stack.
       iga--;
       if (iga >= 0) {
-	gi = gi_stack[iga];
-	cgs = s_stack[iga];
+        gi = gi_stack[iga];
+        cgs = s_stack[iga];
       } else {
-	gi = -1;
-	cgs = '\0';
+        gi = -1;
+        cgs = '\0';
       }
     // ---------------------------------------------------------------
     // Handle tokens.
     } else if (nt < n_tokens) {
-      // If the next token is special, put it in front.
       const char nx_token = regex[i+1]; // temporary storage
       // if in token set
       if (cgs == '[') {
-	jumpi[nt] = 1; // set an immediate jump on failure
-	// if this is the last token in the token set..
-	if (nx_token == ']') {
-	  jumpi[nt] = 2; // set this as an "end of token set" element
-	  SET_JUMP(nt, group_nexts[gi], EXIT_TOKEN);
-	// otherwise this is not the last token in the token set..
-	} else {
-	  // this group is negated, so exit on "success" (compensate for flip)
-	  if (neg) {
-	    SET_JUMP(nt, nt+1, EXIT_TOKEN);
-	  // this is not negated nor last, success exist, failure steps to next
-	  } else {
-	    SET_JUMP(nt, group_nexts[gi], nt+1);
-	  }
-	}
+        jumpi[nt] = 1; // set an immediate jump on failure
+        // if this is the last token in the token set..
+        if (nx_token == ']') {
+          jumpi[nt] = 2; // set this as an "end of token set" element
+          SET_JUMP(nt, group_nexts[gi], EXIT_TOKEN);
+        // otherwise this is not the last token in the token set..
+        } else {
+          // this group is negated, so exit on "success" (compensate for flip)
+          if (neg) {
+            SET_JUMP(nt, nt+1, EXIT_TOKEN);
+          // this is not negated nor last, success exits set, failure steps to next
+          } else {
+            SET_JUMP(nt, group_nexts[gi], nt+1);
+          }
+        }
       // Not in token set, handle special looping modifiers on single tokens
       } else if ((nx_token == '*') || (nx_token == '?') || (nx_token == '|')) {
-	SET_JUMP(nt, nt+(neg?2:1), nt+(neg?1:2)); // set jump conditions for special token
-	redirect[nt] = nt; // reset redirect to completed token
-	nt++; // increment the token counter.
-	i++; // increment the regex index counter
-	// make tokens followed by * loop back to *
-	if (nx_token == '*') {
-	  SET_JUMP(nt, nt-1, EXIT_TOKEN);
-	// make tokens followed by | correctly jump
-	} else if (nx_token == '|'){  
-	  const char nxnx_token = regex[i+1];
-	  if ((nxnx_token == '(') || (nxnx_token == '[') || (nxnx_token == '{')) {
-	    SET_JUMP(nt, group_nexts[ng+1], EXIT_TOKEN); // last token jumps after next group
-	  } else {
-	    SET_JUMP(nt, nt+2, EXIT_TOKEN); // last token jumps after next token
-	  }
-	// make tokens followed by ? correctly jump
-	} else if (nx_token == '?') {
-	  SET_JUMP(nt, nt+1, EXIT_TOKEN);
-	}
+        SET_JUMP(nt, nt+(neg?2:1), nt+(neg?1:2)); // set jump conditions for special token
+        redirect[nt] = nt; // reset redirect to completed token
+        nt++; // increment the token counter.
+        i++; // increment the regex index counter
+        // make tokens followed by * loop back to *
+        if (nx_token == '*') {
+          SET_JUMP(nt, nt-1, EXIT_TOKEN);
+        // make tokens followed by | correctly jump
+        } else if (nx_token == '|'){  
+          const char nxnx_token = regex[i+1]; // guaranteed to exist
+          if ((nxnx_token == '(') || (nxnx_token == '[') || (nxnx_token == '{')) {
+            SET_JUMP(nt, group_nexts[ng+1], EXIT_TOKEN); // last token jumps after next group
+          } else {
+            SET_JUMP(nt, nt+2, EXIT_TOKEN); // last token jumps after next token
+          }
+        // make tokens followed by ? correctly jump
+        } else if (nx_token == '?') {
+          SET_JUMP(nt, nt+1, EXIT_TOKEN);
+        }
       // if this is a standard token..
       } else {
-	SET_JUMP(nt, nt+1, EXIT_TOKEN);
+        SET_JUMP(nt, nt+1, EXIT_TOKEN);
       }
       redirect[nt] = nt; // reset redirect to completed token
       // store the token, skip specials that were already stored earlier
       if ((cgs == '[') || ((token != '*') && (token != '?') && (token != '|'))) {
-	nt++; // increment the token counter.
+        nt++; // increment the token counter.
       }
     }
     // ---------------------------------------------------------------
@@ -645,11 +644,11 @@ void match(const char * regex, const char * string, int * start, int * end) {
   int * jumps = malloc(mem_bytes); // jump-to location after success
   int * jumpf = jumps + n_tokens; // jump-to location after failure
   int * active = jumpf + n_tokens; // presently active tokens in regex
-  int * cstack = active + n_tokens + 1; // current stack of active tokens
+  int * cstack = active + n_tokens+1; // current stack of active tokens
   int * nstack = cstack + n_tokens; // next stack of active tokens
   char * tokens = (char*) (nstack + n_tokens); // regex index of each token (character)
-  char * jumpi = tokens + n_tokens + 1; // immediately check next on failure
-  char * incs = jumpi + n_tokens; // token flags for "in current stack"
+  char * jumpi = tokens + n_tokens+1; // immediately check next on failure
+  char * incs = jumpi + n_tokens+1; // token flags for "in current stack"
   char * inns = incs + n_tokens; // token flags for "in next stack"
   // Terminate the two character arrays with the null character.
   tokens[n_tokens] = '\0';
@@ -661,7 +660,7 @@ void match(const char * regex, const char * string, int * start, int * end) {
   // Set all tokens to be inactive, convert ? to * for simplicity.
   active[n_tokens] = EXIT_TOKEN;
   for (int j = 0; j < n_tokens; j++) {
-    // convert both "special tokens" to * for speed, exclude all
+    // convert all "special tokens" to * for speed, exclude all
     // tokens with jumpi = 1 because those are inside token sets
     if ((! jumpi[j]) && ((tokens[j] == '?') || (tokens[j] == '|')))
       tokens[j] = '*';
@@ -699,8 +698,8 @@ void match(const char * regex, const char * string, int * start, int * end) {
   #define MATCH_STACK_NEXT_TOKEN(stack, si, in_stack)\
     if ((dest >= 0) && (val >= active[dest])) {\
       if (in_stack[dest] == 0) {\
-	si++;\
-	stack[si] = dest;\
+        si++;\
+        stack[si] = dest;\
       }\
       if (dest == n_tokens) {\
         free(jumps);\
@@ -710,9 +709,9 @@ void match(const char * regex, const char * string, int * start, int * end) {
         return;\
       } else {\
         in_stack[dest] = 1;\
-        active[dest] = val;\
+        if (active[dest] == EXIT_TOKEN) active[dest] = val;\
       }\
-    }                                
+    }
 
   // Start searching for a regular expression match. (the character
   // 'c' is checked for null value at the end of the loop.
@@ -754,7 +753,7 @@ void match(const char * regex, const char * string, int * start, int * end) {
       // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
       #ifdef DEBUG
       if (DO_PRINT) {
-      printf("    j = %d   ct = '%s'  %2d %2d \n", j, SAFE_CHAR(ct), jumps[j], jumpf[j]);
+        printf("    j = %d   ct = '%s'  %2d %2d  (%d)\n", j, SAFE_CHAR(ct), jumps[j], jumpf[j], val);
       }
       #endif
       // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -762,24 +761,24 @@ void match(const char * regex, const char * string, int * start, int * end) {
       // the current stack (to be checked before next charactrer).
       if ((ct == '*') && (! jumpi[j])) {
         if (j == 0) val = i; // ignore leading tokens where possible
-	dest = jumps[j];
-	MATCH_STACK_NEXT_TOKEN(cstack, ics, incs);
-	dest = jumpf[j];
-	MATCH_STACK_NEXT_TOKEN(cstack, ics, incs);
+        dest = jumps[j];
+        MATCH_STACK_NEXT_TOKEN(cstack, ics, incs);
+        dest = jumpf[j];
+        MATCH_STACK_NEXT_TOKEN(cstack, ics, incs);
       // Check to see if this token matches the current character.
       } else if ((c == ct) || ((ct == '.') && (! jumpi[j]) && (c != '\0'))) {
-	dest = jumps[j];
-	MATCH_STACK_NEXT_TOKEN(nstack, ins, inns);
+        dest = jumps[j];
+        MATCH_STACK_NEXT_TOKEN(nstack, ins, inns);
       // This token did not match, trigger a jump fail.
       } else {
-	dest = jumpf[j];
-	// jump immediately on fail if this is not the last token in a token set
-	if (jumpi[j] == 1) { 
-	  MATCH_STACK_NEXT_TOKEN(cstack, ics, incs);
-	// otherwise, put into the "next" stack
-	} else { 
-	  MATCH_STACK_NEXT_TOKEN(nstack, ins, inns);
-	}
+        dest = jumpf[j];
+        // jump immediately on fail if this is not the last token in a token set
+        if (jumpi[j] == 1) { 
+          MATCH_STACK_NEXT_TOKEN(cstack, ics, incs);
+        // otherwise, put into the "next" stack
+        } else { 
+          MATCH_STACK_NEXT_TOKEN(nstack, ins, inns);
+        }
       }
     }
     // Switch out the current stack with the next stack.
@@ -797,7 +796,7 @@ void match(const char * regex, const char * string, int * start, int * end) {
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     #ifdef DEBUG
     if (DO_PRINT) {
-    printf("\n");
+      printf("\n");
     }
     #endif
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -907,7 +906,7 @@ void matcha(const char * regex, const char * string,
           else s_found = 2*s_found; \
           int * new_starts = malloc(3 * s_found * sizeof(int)); \
           int * new_ends = new_starts + s_found; \
-          for (int index = 0; index < n_found; index++)	{ \
+          for (int index = 0; index < n_found; index++)      { \
             new_starts[index] = (*starts)[index]; \
             new_ends[index] = (*ends)[index]; \
           } \
@@ -946,24 +945,24 @@ void matcha(const char * regex, const char * string,
       // the current stack (to be checked before next charactrer).
       if ((ct == '*') && (! jumpi[j])) {
         if (j == 0) val = i; // ignore leading tokens where possible
-	dest = jumps[j];
-	MATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
-	dest = jumpf[j];
-	MATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
+      dest = jumps[j];
+      MATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
+      dest = jumpf[j];
+      MATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
       // Check to see if this token matches the current character.
       } else if ((c == ct) || ((ct == '.') && (! jumpi[j]) && (c != '\0'))) {
-	dest = jumps[j];
-	MATCHA_STACK_NEXT_TOKEN(nstack, ins, inns);
+      dest = jumps[j];
+      MATCHA_STACK_NEXT_TOKEN(nstack, ins, inns);
       // This token did not match, trigger a jump fail.
       } else {
-	dest = jumpf[j];
-	// jump immediately on fail if this is not the last token in a token set
-	if (jumpi[j] == 1) { 
-	  MATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
-	// otherwise, put into the "next" stack
-	} else { 
-	  MATCHA_STACK_NEXT_TOKEN(nstack, ins, inns);
-	}
+      dest = jumpf[j];
+      // jump immediately on fail if this is not the last token in a token set
+      if (jumpi[j] == 1) { 
+        MATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
+      // otherwise, put into the "next" stack
+      } else { 
+        MATCHA_STACK_NEXT_TOKEN(nstack, ins, inns);
+      }
       }
     }
     // Switch out the current stack with the next stack.
@@ -1014,7 +1013,7 @@ void matcha(const char * regex, const char * string,
 // Find all nonoverlapping matches of a regular expression in a file
 // at a given path. Return arrays of the starts and ends of matches.
 void fmatcha(const char * regex, const char * path,
-		int * n, int ** starts, int ** ends, int ** lines,
+            int * n, int ** starts, int ** ends, int ** lines,
                 float min_ascii_ratio) {
 
   // Open the file and handle any errors.
@@ -1122,7 +1121,7 @@ void fmatcha(const char * regex, const char * path,
           int * new_starts = malloc(3 * s_found * sizeof(int)); \
           int * new_ends = new_starts + s_found; \
           int * new_lines = new_ends + s_found;  \
-          for (int index = 0; index < n_found; index++)	{ \
+          for (int index = 0; index < n_found; index++)      { \
             new_starts[index] = (*starts)[index]; \
             new_ends[index] = (*ends)[index]; \
             new_lines[index] = (*lines)[index]; \
@@ -1172,24 +1171,24 @@ void fmatcha(const char * regex, const char * path,
       // the current stack (to be checked before next charactrer).
       if ((ct == '*') && (! jumpi[j])) {
         if (j == 0) val = i; // ignore leading tokens where possible
-	dest = jumps[j];
-	FMATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
-	dest = jumpf[j];
-	FMATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
+      dest = jumps[j];
+      FMATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
+      dest = jumpf[j];
+      FMATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
       // Check to see if this token matches the current character.
       } else if ((c == ct) || ((ct == '.') && (! jumpi[j]) && (c != EOF))) {
-	dest = jumps[j];
-	FMATCHA_STACK_NEXT_TOKEN(nstack, ins, inns);
+      dest = jumps[j];
+      FMATCHA_STACK_NEXT_TOKEN(nstack, ins, inns);
       // This token did not match, trigger a jump fail.
       } else {
-	dest = jumpf[j];
-	// jump immediately on fail if this is not the last token in a token set
-	if (jumpi[j] == 1) { 
-	  FMATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
-	// otherwise, put into the "next" stack
-	} else { 
-	  FMATCHA_STACK_NEXT_TOKEN(nstack, ins, inns);
-	}
+      dest = jumpf[j];
+      // jump immediately on fail if this is not the last token in a token set
+      if (jumpi[j] == 1) { 
+        FMATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
+      // otherwise, put into the "next" stack
+      } else { 
+        FMATCHA_STACK_NEXT_TOKEN(nstack, ins, inns);
+      }
       }
     }
     // Switch out the current stack with the next stack.

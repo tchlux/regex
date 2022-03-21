@@ -68,6 +68,12 @@
 # 
 #                            C development
 # 
+#   The token following a ".*" can get excluded from the final match,
+#    because the 'start index' of that token is updated before the
+#    token after it is matched and the regex is completely discovered.
+#    Use a queue to store the tokens instead of stack (track start and
+#    end instead of just count. Special tokens should be given top
+#    priority, then character sets.
 # 
 #   If the "start" index hasn't changed, don't add another match (for
 #   `matcha` type operations, causes too many overlapping matches).
@@ -77,7 +83,7 @@
 # 
 #  Swap out DEBUG for DEVELOP.
 # 
-#  Refactor into four functions:
+#  Refactor into functions:
 #    match -- find first regex match in a string
 #    matcha -- find all regex matches in a string
 #    matchs -- stream string matches by making repeated calls to same function
@@ -106,9 +112,9 @@
 #  Write `randre` that generates a random string that matches the
 #   given regular expression, tile the space of matches so that
 #   all the shortest matches come first, then longer ones
-#    
+#  
 #  Find way to pass in arbitrary "next token" function to the match
-#   function, that way `match` and `matcha` can all go through one
+#   function, that way `match` and `fmatch` can all go through one
 #   function whether given a character array or a file
 # 
 #  ___________________________________________________________________
@@ -485,7 +491,7 @@ documentation including the regular expression language specification.
 
 
 # When using "from regex import *", only get these variables:
-__all__ = [RegexError, match, frex, main]
+__all__ = [RegexError, match, frex, match, matcha, main]
 
 # cd ~/Git/Old/VarSys/3-Dissertation ; python3 -m regex "poetry"
 if __name__ == "__main__":
