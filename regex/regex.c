@@ -109,6 +109,19 @@
 //  Name:
 //    frex  -- fast regular expressions (frexi for case insensitive)
 
+/* // Source struct for reading data (either character array or file). */
+/* typedef struct { */
+/*   const char * s; //for MODE_SINGLE / MODE_MULTI */
+/*   struct {        // for MODE_FILE */
+/*     FILE  * fp; */
+/*     char  * buf; */
+/*     size_t buf_sz, have, idx; */
+/*     float  ascii_cnt, min_ratio; */
+/*     int    line_no; */
+/*   } f; */
+/* } Chars; */
+
+
 // Count the number of tokens and groups in a regular expression.
 void _count(const char * regex, int * tokens, int * groups) {
   // Initialize the number of tokens and groups to 0.
@@ -545,7 +558,7 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
         // if this is the last token in the token set..
         if (nx_token == ']') {
           jumpi[nt] = 2; // set this as an "end of token set" element
-          SET_JUMP(nt, group_nexts[gi], EXIT_TOKEN);
+          SET_JUMP(nt, group_nexts[gi], EXIT_TOKEN);  // <- no negation flipping, handled elsewhere
         // otherwise this is not the last token in the token set..
         } else {
           // this group is negated, so exit on "success" (compensate for flip)
@@ -611,6 +624,54 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
   return;
 }
 
+
+/* // Core logic for MATCH'ing a regular expression. Compiler optimized into */
+/* //  multiple different functions depending on the MODE. */
+/* static inline */
+/* void _match(const char * regex, void * input_source, */
+/*             int * n, int ** starts, int ** ends, int ** lines, */
+/*             int mode) { */
+/*   #define MODE_SINGLE 0 // like `match` */
+/*   #define MODE_MULTI  1 // like `matcha` */
+/*   #define MODE_FILE   2 // like `fmatcha` */
+
+/*   #define NEXT_CHAR(ch,idx,src)                                           \ */
+/*     do {                                                                  \ */
+/*       if (mode != MODE_FILE) {                                            \ */
+/*         ch = src->s[idx];                                                 \ */
+/*       } else {                                                            \ */
+/*         /\* ---- buffered file read, BRAND-NEW implementation ---- *\/      \ */
+/*         if (++src->f.idx >= src->f.have) {                                \ */
+/*           src->f.have = fread(src->f.buf,1,src->f.buf_sz,src->f.fp);      \ */
+/*           if (src->f.have < src->f.buf_sz) src->f.buf[src->f.have] = EOF; \ */
+/*           src->f.idx = 0;                                                 \ */
+/*         }                                                                 \ */
+/*         ch = src->f.buf[src->f.idx];                                      \ */
+/*         if (ch == '\n') ++src->f.line_no;                                 \ */
+/*         /\* early exit on bad ASCII ratio – mirrors old logic *\/           \ */
+/*         if (idx >= MIN_SAMPLE_SIZE &&                                     \ */
+/*             (src->f.ascii_cnt / (float)idx) < src->f.min_ratio) {         \ */
+/*           *n = -3; goto CLEANUP;                                          \ */
+/*         }                                                                 \ */
+/*         if (ch < 128 && ch != EOF) ++src->f.ascii_cnt;                    \ */
+/*       }                                                                   \ */
+/*     } while (0) */
+/*   // prepare the InSrc instance (entirely new code, caller passes in ready data) */
+/*   InSrc *src = (InSrc*)input_source; */
+/*   #define STORE_SINGLE(s,e)           \ */
+/*     do { *n = (e > s); *starts = NULL; *ends = NULL; *lines = NULL;       \ */
+/*          (*start_ptr) = (s); (*end_ptr) = (e); goto CLEANUP; } while (0) */
+/*   #define STORE_MULTI(s,e) /\* reference: push into starts/ends grow-array *\/ */
+/*   #define STORE_FILE(s,e)  /\* reference: push into starts/ends/lines grow-array *\/ */
+/*   // choose the correct macro name once so inner loop has zero branches */
+/*   #if   MODE == MODE_SINGLE */
+/*     #define STORE_MATCH(s,e) STORE_SINGLE(s,e) */
+/*   #elif MODE == MODE_MULTI */
+/*     #define STORE_MATCH(s,e) STORE_MULTI(s,e) */
+/*   #else */
+/*     #define STORE_MATCH(s,e) STORE_FILE(s,e) */
+/*   #endif */
+/* } */
 
 // Do a simple regular experession match.
 void match(const char * regex, const char * string, int * start, int * end) {
@@ -1013,8 +1074,8 @@ void matcha(const char * regex, const char * string,
 // Find all nonoverlapping matches of a regular expression in a file
 // at a given path. Return arrays of the starts and ends of matches.
 void fmatcha(const char * regex, const char * path,
-            int * n, int ** starts, int ** ends, int ** lines,
-                float min_ascii_ratio) {
+             int * n, int ** starts, int ** ends, int ** lines,
+             float min_ascii_ratio) {
 
   // Open the file and handle any errors.
   FILE * file = fopen(path, "r");
@@ -1266,62 +1327,3 @@ int main(int argc, char * argv[]) {
   printf("\n");
 }
 #endif
-
-
-
-//2020-10-21 23:13:29
-//
-//////////////////////////////////////////////////////////////////////////////////////////////////
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                         //
-// #ifdef DEBUG                                                                                 //
-// if (DO_PRINT) {                                                                              //
-// printf("--------------------------------------------------\n");                              //
-// printf("i = %d   c = '%s'  ASCII: %.2f\n\n", i, SAFE_CHAR(c), ascii_count / bytes_read);     //
-// printf("stack:\n");                                                                          //
-// for (int j = ics;  j >= 0; j--) {                                                            //
-//   printf(" '%s' (at %2d) %d\n", SAFE_CHAR(tokens[cstack[j]]), cstack[j], active[cstack[j]]); //
-// }                                                                                            //
-// printf("\n");                                                                                //
-// printf("active: (search token / index of match start)\n");                                   //
-// for (int j = 0; j <= n_tokens; j++) {                                                        //
-//   printf("  %-3s", SAFE_CHAR(tokens[j]));                                                    //
-// }                                                                                            //
-// printf("\n");                                                                                //
-// for (int j = 0; j <= n_tokens; j++) {                                                        //
-//   printf("  %-3d", active[j]);                                                               //
-// }                                                                                            //
-// printf("\n\n");                                                                              //
-// }                                                                                            //
-// #endif                                                                                       //
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                           //
-//////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-//2020-10-21 23:16:09
-//
-/////////////////////////////////////////////////////////////////////////////////////////
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                //
-// #ifdef DEBUG                                                                        //
-// if (DO_PRINT) {                                                                     //
-// printf("    j = %d   ct = '%s'  %2d %2d \n", j, SAFE_CHAR(ct), jumps[j], jumpf[j]); //
-// }                                                                                   //
-// #endif                                                                              //
-// // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                //
-/////////////////////////////////////////////////////////////////////////////////////////
-
-
-//2020-10-22 00:19:34
-//
-/////////////////////////////////////////////////////////////////////////////////
-// //  Write `matchn` that returns *nonoverlapping* matches in arrays.         //
-// //   this could be done with repeated calls to matchs,                      //
-// //   starting after the most recent match                                   //
-// //                                                                          //
-// //  Write `matchl` that returns the *longest* match discovered.             //
-// //   Could this be done by replacing all "t*" with "t*{t}"?                 //
-// //                                                                          //
-// //  Write `matcha` that returns *all* starts and ends of matches in arrays. //
-// //   this could be approximated with repeated calls to matchs,              //
-// //   subtracting out each match from the string by shifting contents,       //
-// //   however this will not get                                              //
-/////////////////////////////////////////////////////////////////////////////////

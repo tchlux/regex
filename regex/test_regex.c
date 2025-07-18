@@ -206,9 +206,10 @@ int run_tests() {
     "({(a)({[bc]}d?e)*(f)}|g(hi)?)",
     "[*][*]*{[*]}",
     "[[][[]",
-       ".*[)][)]",
+    ".*[)][)]",
     ".*end{.}",
     "[|]",
+    "{[.]}*{.}",
     // Last test regular expression must be empty!
     ""
   };
@@ -278,9 +279,10 @@ int run_tests() {
     13,
     4,
     2,
-       4,
+    4,
     6,
     1,
+    3,
     // Last test regular expression must be empty!
     0
   };
@@ -350,9 +352,10 @@ int run_tests() {
     8,
     4,
     2,
-       2,
+    2,
     1,
     1,
+    3,
     // Last test regular expression must be empty!
     0
   };
@@ -422,9 +425,10 @@ int run_tests() {
     "|a*bc?defg?hi",
     "****",
     "[[",
-       "*.))",
+    "*.))",
     "*.end.",
     "|",
+    "*..",
     // Last test regular expression must be empty!
     ""
   };
@@ -494,9 +498,10 @@ int run_tests() {
     1,-1,3,5,5,6,-1,-1,-1,10,11,12,13,
     1,2,1,-1,
     1,2,
-       1,0,3,4,
+    1,0,3,4,
     1,0,3,4,5,-1,
     1,
+    1,-1,-1
     // Last test regular expression must be empty!
     // {}
   };
@@ -566,9 +571,10 @@ int run_tests() {
     9,2,8,4,-1,7,7,2,10,-1,13,-1,-1,
     -1,3,-1,4,
     -1,-1,
-       2,-1,-1,-1,
+    2,-1,-1,-1,
     2,-1,-1,-1,-1,6,
     -1,
+    2,0,3
     // Last test regular expression must be empty!
     // {}
   };
@@ -637,9 +643,10 @@ int run_tests() {
     0,0,0,1,2,0,0,0,0,0,0,0,0,
     2,0,2,2,
     2,2,
-       0,0,2,2,
+    0,0,2,2,
     0,0,0,0,0,0,
     2,
+    0,2,0
     // Last test regular expression must be empty!
     //
   };
@@ -709,9 +716,10 @@ int run_tests() {
     "gf",
     "*** test",
     "[[ test",
-       "test ))",
+    "test ))",
     " does it ever end",
     "| test",
+    "anything",
     // Last test regular expression must be empty!
     ""
   };
@@ -749,26 +757,21 @@ int run_tests() {
     0,
     0,
     0,
-    2,
-    -1,
-    6,
     0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    2,
-    4,
-    4,
     -1,
     0,
     0,
     0,
     0,
-    6,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    -1,
     0,
     0,
     0,
@@ -781,8 +784,14 @@ int run_tests() {
     0,
     0,
     0,
-    5,
-    14,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
     0,
     //
     -1
@@ -851,11 +860,12 @@ int run_tests() {
     1,
     1,
     1,
-    4,
+    3,
     2,
-       2,
+    7,
     18,
     1,
+    9,
     //
     STRING_EMPTY_ERROR
   };

@@ -26,6 +26,9 @@
 #   write a C function for translating from classic regular
 #   expressions into fast regular expressions
 # 
+#   should allow external compilation of regex, so that the same
+#   expression can be efficiently reused many times
+# 
 #   default regex library has a `finditer` command that iterates over
 #   matches and streams bytes to the regular experssion library from
 #   a buffer, can that be done here?
@@ -157,6 +160,11 @@ except:
 class RegexError(Exception): pass
 
 
+WHITESPACE = ''.join(list(map(chr,(32,9,10,11,12,13))))  # space, tab, newline, .., .., carriage return
+DIGITS = "0123456789"
+CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+WORDS = CHARACTERS + DIGITS + "_"
+
 # from memory_profiler import profile
 
 # Given a regular expression in a Unix-like format, translate it to a
@@ -174,6 +182,11 @@ def translate_regex(regex, case_sensitive=True):
         # Add a "{.}" to the end of the regex if the end of the string
         # was explicitly requested in the pattern.
         if (regex[-1] == "$"): regex = regex[:-1] + "{.}"
+        # Do some of the standard character classes.
+        regex = regex.replace("\\s", WHITESPACE)
+        regex = regex.replace("\\d", DIGITS)
+        regex = regex.replace("\\a", CHARACTERS)
+        regex = regex.replace("\\w", WORDS)
     # Replace all alphebetical characters with token sets that include
     # all cases of that character.
     if (not case_sensitive):
@@ -405,7 +418,8 @@ def frex(regex, *path_patterns, curdir=".", recursive=True,
         for fname in file_paths:
             path = os.path.join(dirname, fname)
             for pattern in path_patterns:
-                if (match(pattern, path, **translate_kwargs) is not None): break
+                if (match(pattern, path, **translate_kwargs) is not None):
+                    break
             else: continue
             paths.append(path)
     # Perform the search over all the candidate paths (in parallel).
@@ -498,9 +512,9 @@ if __name__ == "__main__":
     main()
     exit()
 
-    import cProfile as profile
-    profile.run("main()", sort='time') # sort by total time
-    # profile.run("main()", sort='cumtime') # sort by cumulative time
+    # import cProfile as profile
+    # profile.run("main()", sort='time') # sort by total time
+    # # profile.run("main()", sort='cumtime') # sort by cumulative time
 
 
 
