@@ -98,6 +98,9 @@
 #define REGEX_SYNTAX_ERROR -3
 #define REGEX_EMPTY_GROUP_ERROR -4
 #define STRING_EMPTY_ERROR -5
+#define REGULAR_TOKEN 0
+#define SET_TOKEN_BODY 1
+#define SET_TOKEN_LAST 2
 #define DEFAULT_GROUP_MOD ' '
 #define MIN_SAMPLE_SIZE 100
 //      ^^ minimum number of bytes read before checking ASCII ratio
@@ -320,7 +323,7 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
       tokens[nt] = token; // store the token
       jumps[nt] = nt+1; // initialize jump on successful match to next token
       jumpf[nt] = EXIT_TOKEN; // initialize jump on failed match to exit
-      jumpi[nt] = 0; // initialize immediately check next to 0 (off)
+      jumpi[nt] = REGULAR_TOKEN; // initialize immediately check next to 0 (off)
       nt++; // increment to next token
     }
     // Cycle to the next token.
@@ -554,10 +557,10 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
       const char nx_token = regex[i+1]; // temporary storage
       // if in token set
       if (cgs == '[') {
-        jumpi[nt] = 1; // set an immediate jump on failure
+        jumpi[nt] = SET_TOKEN_BODY; // set an immediate jump on failure
         // if this is the last token in the token set..
         if (nx_token == ']') {
-          jumpi[nt] = 2; // set this as an "end of token set" element
+          jumpi[nt] = SET_TOKEN_LAST; // set this as an "end of token set" element
           SET_JUMP(nt, group_nexts[gi], EXIT_TOKEN);  // <- no negation flipping, handled elsewhere
         // otherwise this is not the last token in the token set..
         } else {
@@ -763,10 +766,10 @@ void match(const char * regex, const char * string, int * start, int * end) {
         stack[si] = dest;\
       }\
       if (dest == n_tokens) {\
-        free(jumps);\
         (*start) = val;\
         (*end) = i;\
         if ((jumpi[j]) || (ct != '*')) (*end)++;\
+        free(jumps);\
         return;\
       } else {\
         in_stack[dest] = 1;\
@@ -822,6 +825,8 @@ void match(const char * regex, const char * string, int * start, int * end) {
       // the current stack (to be checked before next charactrer).
       if ((ct == '*') && (! jumpi[j])) {
         if (j == 0) val = i; // ignore leading tokens where possible
+        // stack will be popped (in reverse order), check failure
+        //  branch *first*, or risk infinite recursion on success.
         dest = jumps[j];
         MATCH_STACK_NEXT_TOKEN(cstack, ics, incs);
         dest = jumpf[j];
@@ -834,7 +839,7 @@ void match(const char * regex, const char * string, int * start, int * end) {
       } else {
         dest = jumpf[j];
         // jump immediately on fail if this is not the last token in a token set
-        if (jumpi[j] == 1) { 
+        if (jumpi[j] == SET_TOKEN_BODY) { 
           MATCH_STACK_NEXT_TOKEN(cstack, ics, incs);
         // otherwise, put into the "next" stack
         } else { 

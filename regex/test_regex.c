@@ -141,768 +141,346 @@ int main(int argc, char * argv[]) {
 }
 
 int run_tests() {
-  // test data array
-  char * regexes[] = {
+
+  // Custom type for test cases.
+  typedef struct {
+    char *regex;
+    int n_tokens;
+    int n_groups;
+    char *tokens;
+    int *jumps;
+    int *jumpf;
+    char *jumpi;
+    char *string;
+    int match_start;
+    int match_end;
+  } regex_test_case;
+
+  // Test cases for the regular expression engine.
+  // 
+  //  {
+  //     regex,           number-of-tokens,  number-of-groups,
+  //     tokens-prefixed, jump-on-match,     jump-on-mismatch,  jump-immediate-for-OR,
+  //     string,          match-start-index, match-end-index
+  //   }
+  //
+  regex_test_case test_cases[] = {
     // Invalid regular expressions.
-    "*abc",
-    "?abc",
-    "|abc",
-    ")abc",
-    "}abc",
-    "]abc",
-    "abc|",
-    "abc|*",
-    "abc|?",
-    "abc|)",
-    "abc|]",
-    "abc|}",
-    "abc**",
-    "abc*?",
-    "abc?*",
-    "abc??",
-    "abc(*",
-    "abc(?",
-    "abc{*",
-    "abc{?",
-    "abc(",
-    "abc{",
-    "abc()",
-    "abc{}",
-    "abc[]",
+    { "*abc", -1, REGEX_SYNTAX_ERROR,
+      "",     NULL, NULL, NULL,
+      " ",    -1, REGEX_SYNTAX_ERROR },
+
+    { "?abc", -1, REGEX_SYNTAX_ERROR,
+      "",     NULL, NULL, NULL,
+      " ",    -1, REGEX_SYNTAX_ERROR },
+
+    { "|abc", -1, REGEX_SYNTAX_ERROR,
+      "",     NULL, NULL, NULL,
+      " ",    -1, REGEX_SYNTAX_ERROR },
+
+    { ")abc", -1,    REGEX_SYNTAX_ERROR,
+      "",     NULL,     NULL,     NULL,
+      " ",    -1,    REGEX_SYNTAX_ERROR },
+
+    { "}abc", -1, REGEX_SYNTAX_ERROR,
+      "",     NULL, NULL, NULL,
+      " ",    -1, REGEX_SYNTAX_ERROR },
+
+    { "]abc", -1, REGEX_SYNTAX_ERROR,
+      "",     NULL, NULL, NULL,
+      " ",    -1, REGEX_SYNTAX_ERROR },
+
+    { "abc|", -4, REGEX_SYNTAX_ERROR,
+      "",     NULL, NULL, NULL,
+      " ",    -4, REGEX_SYNTAX_ERROR },
+
+    { "abc|*", -5, REGEX_SYNTAX_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_SYNTAX_ERROR },
+
+    { "abc|?", -5, REGEX_SYNTAX_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_SYNTAX_ERROR },
+
+    { "abc|)", -5, REGEX_SYNTAX_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_SYNTAX_ERROR },
+
+    { "abc|]", -5, REGEX_SYNTAX_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_SYNTAX_ERROR },
+
+    { "abc|}", -5, REGEX_SYNTAX_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_SYNTAX_ERROR },
+
+    { "abc**", -5, REGEX_SYNTAX_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_SYNTAX_ERROR },
+
+    { "abc*?", -5, REGEX_SYNTAX_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_SYNTAX_ERROR },
+
+    { "abc?*", -5, REGEX_SYNTAX_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_SYNTAX_ERROR },
+
+    { "abc??", -5, REGEX_SYNTAX_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_SYNTAX_ERROR },
+
+    { "abc(*", -5, REGEX_SYNTAX_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_SYNTAX_ERROR },
+
+    { "abc(?", -5, REGEX_SYNTAX_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_SYNTAX_ERROR },
+
+    { "abc{*", -5, REGEX_SYNTAX_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_SYNTAX_ERROR },
+
+    { "abc{?", -5, REGEX_SYNTAX_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_SYNTAX_ERROR },
+
+    { "abc(", -5, REGEX_UNCLOSED_GROUP_ERROR,
+      "",     NULL, NULL, NULL,
+      " ",    -5, REGEX_UNCLOSED_GROUP_ERROR },
+
+    { "abc{", -5, REGEX_UNCLOSED_GROUP_ERROR,
+      "",     NULL, NULL, NULL,
+      " ",    -5, REGEX_UNCLOSED_GROUP_ERROR },
+
+    { "abc()", -5, REGEX_EMPTY_GROUP_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_EMPTY_GROUP_ERROR },
+
+    { "abc{}", -5, REGEX_EMPTY_GROUP_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_EMPTY_GROUP_ERROR },
+
+    { "abc[]", -5, REGEX_EMPTY_GROUP_ERROR,
+      "",      NULL, NULL, NULL,
+      " ",     -5, REGEX_EMPTY_GROUP_ERROR },
+
     // Valid regular expressions.
-    ".",
-    ".*",
-    "..",
-    " (.|.)*d",
-    ".* .*ad",
-    "abc",
-    ".*abc",
-    ".((a*)|(b*))*.",
-    "(abc)",
-    "[abc]",
-    "{abc}",
-    "{[abc]}",
-    "{{[abc]}}",
-    "[ab][ab]",
-    "{[ab][ab]}",
-    "a*bc",
-    "(ab)*c",
-    "[ab]*c",
-    "{ab}*c",
-    "[a][b]*{[c]}",
-    "{{a}[bcd]}",
-    "a{[bcd]}e",
-    "{{a}[bcd]{e}}",
-    "(a(bc)?)*(d)",
-    "(a(bc*)?)|d",
-    "{a(bc*)?}|d",
-    "{(a(bc*)?)}|d",
-    "(a(bc)?)|(de)",
-    "(a(z.)*)[bc]*d*",
-    "(a(z.)*)[bc]*d*{e}f?g",
-    "(a(z.)*)[bc]*d*{e}f?g|h",
-    "({({ab}c?)*d}|(e(fg)?))",
-    "({({[ab]}c?)*d}|(e(fg)?))",
-    "({(a)({[bc]}d?e)*(f)}|g(hi)?)",
-    "[*][*]*{[*]}",
-    "[[][[]",
-    ".*[)][)]",
-    ".*end{.}",
-    "[|]",
-    "{[.]}*{.}",
+
+    { ".",    1, 0,
+      ".",    (int[]){1}, (int[]){-1}, (char[]){0},
+      " abc", 0, 1 },
+
+    { ".*", 2, 0,
+      "*.", (int[]){1,0}, (int[]){2,-1}, (char[]){0,0},
+      ".*", 0, 0 },
+
+    { "..", 2, 0,
+      "..", (int[]){1,2}, (int[]){-1,-1}, (char[]){0,0},
+      "..", 0, 2 },
+
+    { " (.|.)*d", 6, 1,
+      " *|..d",   (int[]){1,2,3,1,1,6}, (int[]){-1,5,4,-1,-1,-1}, (char[]){0,0,0,0,0,0},
+      " (.|.)*d", 0, 8 },
+
+    { ".* .*ad", 7, 0,
+      "*. *.ad", (int[]){1,0,3,4,3,6,7}, (int[]){2,-1,-1,5,-1,-1,-1}, (char[]){0,0,0,0,0,0,0},
+      ".* .*ad", 0, 7 },
+
+    { "abc",  3, 0,
+      "abc",  (int[]){1,2,3}, (int[]){-1,-1,-1}, (char[]){0,0,0},
+      " abc", -1, 0 },
+
+    { ".*abc", 5, 0,
+      "*.abc", (int[]){1,0,3,4,5}, (int[]){2,-1,-1,-1,-1}, (char[]){0,0,0,0,0},
+      "      abc", 0, 9 },
+
+    { ".((a*)|(b*))*.", 8, 3,
+      ".*|*a*b.",       (int[]){1,2,3,4,3,6,5,8}, (int[]){-1,7,5,7,-1,1,-1,-1}, (char[]){0,0,0,0,0,0,0,0},
+      " aabbb ",        0, 2 },
+
+    { "(abc)", 3, 1,
+      "abc",   (int[]){1,2,3}, (int[]){-1,-1,-1}, (char[]){0,0,0},
+      "abc",   0, 3 },
+
+    { "[abc]", 3, 1,
+      "abc",   (int[]){3,3,3}, (int[]){1,2,-1}, (char[]){1,1,2},
+      "c",     0, 1 },
+
+    { "{abc}", 3, 1,
+      "abc",   (int[]){-1,-1,-1}, (int[]){1,2,3}, (char[]){0,0,0},
+      "ddd",   0, 3 },
+
+    { "{[abc]}", 3, 2,
+      "abc",     (int[]){-1,-1,-1}, (int[]){1,2,3}, (char[]){1,1,2},
+      "d",       0, 1 },
+
+    { "{{[abc]}}", 3, 3,
+      "abc",       (int[]){3,3,3}, (int[]){1,2,-1}, (char[]){1,1,2},
+      "c",         0, 1 },
+
+    { "[ab][ab]", 4, 2,
+      "abab",     (int[]){2,2,4,4}, (int[]){1,-1,3,-1}, (char[]){1,2,1,2},
+      "ba",       0, 2 },
+
+    { "{[ab][ab]}", 4, 3,
+      "abab",       (int[]){-1,-1,-1,-1}, (int[]){1,2,3,4}, (char[]){1,2,1,2},
+      "cd",         0, 2 },
+
+    { "a*bc", 4, 0,
+      "*abc", (int[]){1,0,3,4}, (int[]){2,-1,-1,-1}, (char[]){0,0,0,0},
+      "aabc", 0, 4 },
+
+    { "(ab)*c", 4, 1,
+      "*abc",   (int[]){1,2,0,4}, (int[]){3,-1,-1,-1}, (char[]){0,0,0,0},
+      "ababc",  0, 5 },
+
+    { "[ab]*c", 4, 1,
+      "*abc",   (int[]){1,0,0,4}, (int[]){3,2,-1,-1}, (char[]){0,1,2,0},
+      "baabc",  0, 5 },
+
+    { "{ab}*c", 4, 1,
+      "*abc",   (int[]){1,-1,-1,4}, (int[]){3,2,0,-1}, (char[]){0,0,0,0},
+      "zzdc",   -1, 0 },
+
+    { "[a][b]*{[c]}", 4, 4,
+      "a*bc",         (int[]){1,2,1,-1}, (int[]){-1,3,-1,4}, (char[]){2,0,2,2},
+      "ad",           0, 2 },
+
+    { "{{a}[bcd]}", 4, 3,
+      "abcd",       (int[]){1,-1,-1,-1}, (int[]){-1,2,3,4}, (char[]){0,1,1,2},
+      "azw",        0, 2 },
+
+    { "a{[bcd]}e", 5, 2,
+      "abcde",     (int[]){1,-1,-1,-1,5}, (int[]){-1,2,3,4,-1}, (char[]){0,1,1,2,0},
+      "afe",       0, 3 },
+
+    { "{{a}[bcd]{e}}", 5, 4,
+      "abcde",         (int[]){1,-1,-1,-1,5}, (int[]){-1,2,3,4,-1}, (char[]){0,1,1,2,0},
+      "age",           0, 3 },
+
+    { "(a(bc)?)*(d)", 6, 3,
+      "*a?bcd",       (int[]){1,2,3,4,0,6}, (int[]){5,-1,0,-1,-1,-1}, (char[]){0,0,0,0,0,0},
+      "abcabcd",      0, 7 },
+
+    { "(a(bc*)?)|d", 7, 2,
+      "|a?b*cd",     (int[]){1,2,3,4,5,4,7}, (int[]){6,-1,7,-1,7,-1,-1}, (char[]){0,0,0,0,0,0,0},
+      "d",           0, 1 },
+
+    { "{a(bc*)?}|d", 7, 2,
+      "|a?b*cd",     (int[]){1,-1,3,-1,5,-1,7}, (int[]){6,2,7,4,7,4,-1}, (char[]){0,0,0,0,0,0,0},
+      "zdb",         0, 1 },
+
+    { "{(a(bc*)?)}|d", 7, 3,
+      "|a?b*cd",       (int[]){1,-1,3,-1,5,-1,7}, (int[]){6,2,7,4,7,4,-1}, (char[]){0,0,0,0,0,0,0},
+      "d",             0, 1 },
+
+    { "(a(bc)?)|(de)", 7, 3,
+      "|a?bcde",       (int[]){1,2,3,4,7,6,7}, (int[]){5,-1,7,-1,-1,-1,-1}, (char[]){0,0,0,0,0,0,0},
+      "abc",           0, 1 },
+
+    { "(a(z.)*)[bc]*d*", 9, 3,
+      "a*z.*bc*d",       (int[]){1,2,3,1,5,4,4,8,7}, (int[]){-1,4,-1,-1,7,6,-1,9,-1}, (char[]){0,0,0,0,0,1,2,0,0},
+      "az.bcd",          0, 1 },
+
+    { "(a(z.)*)[bc]*d*{e}f?g", 13, 4,
+      "a*z.*bc*de?fg",         (int[]){1,2,3,1,5,4,4,8,7,-1,11,12,13}, (int[]){-1,4,-1,-1,7,6,-1,9,-1,10,12,-1,-1}, (char[]){0,0,0,0,0,1,2,0,0,0,0,0,0},
+      "aztzsbcdfg",            0, 10 },
+
+    { "(a(z.)*)[bc]*d*{e}f?g|h", 15, 4,
+      "a*z.*bc*de?f|gh",         (int[]){1,2,3,1,5,4,4,8,7,-1,11,12,13,15,15}, (int[]){-1,4,-1,-1,7,6,-1,9,-1,10,12,-1,14,-1,-1}, (char[]){0,0,0,0,0,1,2,0,0,0,0,0,0,0,0},
+      "aztzsbcdh",               0, 9 },
+
+    { "({({ab}c?)*d}|(e(fg)?))", 11, 6,
+      "|*ab?cde?fg",             (int[]){1,2,3,4,5,-1,-1,8,9,10,11}, (int[]){7,6,-1,-1,1,1,11,-1,11,-1,-1}, (char[]){0,0,0,0,0,0,0,0,0,0,0},
+      "abdabc",                  0, 1 },
+
+    { "({({[ab]}c?)*d}|(e(fg)?))", 11, 7,
+      "|*ab?cde?fg",               (int[]){1,2,4,4,5,-1,-1,8,9,10,11}, (int[]){7,6,3,-1,1,1,11,-1,11,-1,-1}, (char[]){0,0,1,2,0,0,0,0,0,0,0},
+      "efg",                       0, 1 },
+
+    { "({(a)({[bc]}d?e)*(f)}|g(hi)?)", 13, 8,
+      "|a*bc?defg?hi",                 (int[]){1,-1,3,5,5,6,-1,-1,-1,10,11,12,13}, (int[]){9,2,8,4,-1,7,7,2,10,-1,13,-1,-1}, (char[]){0,0,0,1,2,0,0,0,0,0,0,0,0},
+      "gf",                            0, 1 },
+
+    { "[*][*]*{[*]}", 4, 4,
+      "****",         (int[]){1,2,1,-1}, (int[]){-1,3,-1,4}, (char[]){2,0,2,2},
+      "*** test",     0, 4 },
+
+    { "[[][[]",  2, 2,
+      "[[",      (int[]){1,2}, (int[]){-1,-1}, (char[]){2,2},
+      "[[ test", 0, 2 },
+
+    { ".*[)][)]", 4, 2,
+      "*.))",     (int[]){1,0,3,4}, (int[]){2,-1,-1,-1}, (char[]){0,0,2,2},
+      "test ))",  0, 7 },
+
+    { ".*end{.}",          6, 1,
+      "*.end.",            (int[]){1,0,3,4,5,-1}, (int[]){2,-1,-1,-1,-1,6}, (char[]){0,0,0,0,0,0},
+      " does it ever end", 0, 18 },
+
+    { "[|]",    1, 1,
+      "|",      (int[]){1}, (int[]){-1}, (char[]){2},
+      "| test", 0, 1 },
+
+    { "{[.]}*{.}", 3, 3,
+      "*..",       (int[]){1,-1,-1}, (int[]){2,0,3}, (char[]){0,2,0},
+      "anything",  0, 9 },
+
+    { "[a]*{[a]}", 3, 3,
+      "*aa",      (int[]){1,0,-1}, (int[]){2,-1,3}, (char[]){0,2,2},
+      "abba",     0, 2 },
+
+    { "[*]*{[*]}", 3, 3,
+      "****",      (int[]){1,0,-1}, (int[]){2,-1,3}, (char[]){0,2,2},
+      "*paths*",   0, 2 },
+
+    { "[*]*{[*]}{[*]}", 4, 5,
+      "****",           (int[]){1,0,-1,-1}, (int[]){2,-1,3,4}, (char[]){0,2,2,2},
+      "*paths*",        0, 3 },
+
     // Last test regular expression must be empty!
-    ""
-  };
 
-  // test data array
-  int true_n_tokens[] = {
-    // Invalid regular expressions.
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -4,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    // Valid regular expressions    
-    1,
-    2,
-    2,
-    6,
-    7,
-    3,
-    5,
-    8,
-    3,
-    3,
-    3,
-    3,
-    3,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    4,
-    5,
-    5,
-    6,
-    7,
-    7,
-    7,
-    7,
-    9,
-    13,
-    15,
-    11,
-    11,
-    13,
-    4,
-    2,
-    4,
-    6,
-    1,
-    3,
-    // Last test regular expression must be empty!
-    0
-  };
+    { "", 0, 0,
+      "", NULL, NULL, NULL,
+      "", -1, STRING_EMPTY_ERROR  }
 
-  // test data array
-  int true_n_groups[] = {
-    // Invalid regular expressions.
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_UNCLOSED_GROUP_ERROR,
-    REGEX_UNCLOSED_GROUP_ERROR,
-    REGEX_EMPTY_GROUP_ERROR,
-    REGEX_EMPTY_GROUP_ERROR,
-    REGEX_EMPTY_GROUP_ERROR,
-    // Valid regular expressions    
-    0,
-    0,
-    0,
-    1,
-    0,
-    0,
-    0,
-    3,
-    1,
-    1,
-    1,
-    2,
-    3,
-    2,
-    3,
-    0,
-    1,
-    1,
-    1,
-    4,
-    3,
-    2,
-    4,
-    3,
-    2,
-    2,
-    3,
-    3,
-    3,
-    4,
-    4,
-    6,
-    7,
-    8,
-    4,
-    2,
-    2,
-    1,
-    1,
-    3,
-    // Last test regular expression must be empty!
-    0
-  };
-
-  // test data array
-  char * true_tokens[] = {
-    // Invalid regular expressions.
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    // Valid regular expressions.
-    ".",
-    "*.",
-    "..",
-    " *|..d",
-    "*. *.ad",
-    "abc",
-    "*.abc",
-    ".*|*a*b.",
-    "abc",
-    "abc",
-    "abc",
-    "abc",
-    "abc",
-    "abab",
-    "abab",
-    "*abc",
-    "*abc",
-    "*abc",
-    "*abc",
-    "a*bc",
-    "abcd",
-    "abcde",
-    "abcde",
-    "*a?bcd",
-    "|a?b*cd",
-    "|a?b*cd",
-    "|a?b*cd",
-    "|a?bcde",
-    "a*z.*bc*d",
-    "a*z.*bc*de?fg",
-    "a*z.*bc*de?f|gh",
-    "|*ab?cde?fg",
-    "|*ab?cde?fg",
-    "|a*bc?defg?hi",
-    "****",
-    "[[",
-    "*.))",
-    "*.end.",
-    "|",
-    "*..",
-    // Last test regular expression must be empty!
-    ""
-  };
-
-  // test data array
-  int true_jumps[] = {
-    // Invalid regular expressions.
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // Valid regular expressions.
-    1,
-    1,0,
-    1,2,
-    1,2,3,1,1,6,
-    1,0,3,4,3,6,7,
-    1,2,3,
-    1,0,3,4,5,
-    1,2,3,4,3,6,5,8,
-    1,2,3,
-    3,3,3,
-    -1,-1,-1,
-    -1,-1,-1,
-    3,3,3,
-    2,2,4,4,
-    -1,-1,-1,-1,
-    1,0,3,4,
-    1,2,0,4,
-    1,0,0,4,
-    1,-1,-1,4,
-    1,2,1,-1,
-    1,-1,-1,-1,
-    1,-1,-1,-1,5,
-    1,-1,-1,-1,5,
-    1,2,3,4,0,6,
-    1,2,3,4,5,4,7,
-    1,-1,3,-1,5,-1,7,
-    1,-1,3,-1,5,-1,7,
-    1,2,3,4,7,6,7,
-    1,2,3,1,5,4,4,8,7,
-    1,2,3,1,5,4,4,8,7,-1,11,12,13,
-    1,2,3,1,5,4,4,8,7,-1,11,12,13,15,15,
-    1,2,3,4,5,-1,-1,8,9,10,11,
-    1,2,4,4,5,-1,-1,8,9,10,11,
-    1,-1,3,5,5,6,-1,-1,-1,10,11,12,13,
-    1,2,1,-1,
-    1,2,
-    1,0,3,4,
-    1,0,3,4,5,-1,
-    1,
-    1,-1,-1
-    // Last test regular expression must be empty!
-    // {}
-  };
-
-  // test data array
-  int true_jumpf[] = {
-    // Invalid regular expressions.
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // Valid regular expressions.
-    -1,
-    2,-1,
-    -1,-1,
-    -1,5,4,-1,-1,-1,
-    2,-1,-1,5,-1,-1,-1,
-    -1,-1,-1,
-    2,-1,-1,-1,-1,
-    -1,7,5,7,-1,1,-1,-1,
-    -1,-1,-1,
-    1,2,-1,
-    1,2,3,
-    1,2,3,
-    1,2,-1,
-    1,-1,3,-1,
-    1,2,3,4,
-    2,-1,-1,-1,
-    3,-1,-1,-1,
-    3,2,-1,-1,
-    3,2,0,-1,
-    -1,3,-1,4,
-    -1,2,3,4,
-    -1,2,3,4,-1,
-    -1,2,3,4,-1,
-    5,-1,0,-1,-1,-1,
-    6,-1,7,-1,7,-1,-1,
-    6,2,7,4,7,4,-1,
-    6,2,7,4,7,4,-1,
-    5,-1,7,-1,-1,-1,-1,
-    -1,4,-1,-1,7,6,-1,9,-1,
-    -1,4,-1,-1,7,6,-1,9,-1,10,12,-1,-1,
-    -1,4,-1,-1,7,6,-1,9,-1,10,12,-1,14,-1,-1,
-    7,6,-1,-1,1,1,11,-1,11,-1,-1,
-    7,6,3,-1,1,1,11,-1,11,-1,-1,
-    9,2,8,4,-1,7,7,2,10,-1,13,-1,-1,
-    -1,3,-1,4,
-    -1,-1,
-    2,-1,-1,-1,
-    2,-1,-1,-1,-1,6,
-    -1,
-    2,0,3
-    // Last test regular expression must be empty!
-    // {}
-  };
-
-  char true_jumpi[] = {
-    // Invalid regular expressions.
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // 
-    // Valid regular expressions.
-    0,
-    0,0,
-    0,0,
-    0,0,0,0,0,0,
-    0,0,0,0,0,0,0,
-    0,0,0,
-    0,0,0,0,0,
-    0,0,0,0,0,0,0,0,
-    0,0,0,
-    1,1,2,
-    0,0,0,
-    1,1,2,
-    1,1,2,
-    1,2,1,2,
-    1,2,1,2,
-    0,0,0,0,
-    0,0,0,0,
-    0,1,2,0,
-    0,0,0,0,
-    2,0,2,2,
-    0,1,1,2,
-    0,1,1,2,0,
-    0,1,1,2,0,
-    0,0,0,0,0,0,
-    0,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,
-    0,0,0,0,0,1,2,0,0,
-    0,0,0,0,0,1,2,0,0,0,0,0,0,
-    0,0,0,0,0,1,2,0,0,0,0,0,0,0,0,
-    0,0,0,0,0,0,0,0,0,0,0,
-    0,0,1,2,0,0,0,0,0,0,0,
-    0,0,0,1,2,0,0,0,0,0,0,0,0,
-    2,0,2,2,
-    2,2,
-    0,0,2,2,
-    0,0,0,0,0,0,
-    2,
-    0,2,0
-    // Last test regular expression must be empty!
-    //
-  };
-
-  // test data array
-  char * strings[] = {
-    // Invalid regular expressions.
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    " ",
-    // Valid regular expressions.
-    " abc",
-    ".*",
-    "..",
-    " (.|.)*d",
-    ".* .*ad",
-    " abc",
-    "      abc",
-    " aabbb ",
-    "abc",
-    "c",
-    "ddd",
-    "d",
-    "c",
-    "ba",
-    "cd",
-    "aabc",
-    "ababc",
-    "baabc",
-    "zzdc",
-    "ad",
-    "azw",
-    "afe",
-    "age",
-    "abcabcd",
-    "d",
-    "zdb",
-    "d",
-    "abc",
-    "az.bcd",
-    "aztzsbcdfg",
-    "aztzsbcdh",
-    "abdabc",
-    "efg",
-    "gf",
-    "*** test",
-    "[[ test",
-    "test ))",
-    " does it ever end",
-    "| test",
-    "anything",
-    // Last test regular expression must be empty!
-    ""
-  };
-
-  // test data array
-  int match_starts[] = {
-    // Invalid regular expressions.
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -1,
-    -4,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    -5,
-    // Valid regular expressions.
-    0,
-    0,
-    0,
-    0,
-    0,
-    -1,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    -1,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    //
-    -1
-  };
-
-  // test data array
-  int match_ends[] = {
-    // Invalid regular expressions.
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_SYNTAX_ERROR,
-    REGEX_UNCLOSED_GROUP_ERROR,
-    REGEX_UNCLOSED_GROUP_ERROR,
-    REGEX_EMPTY_GROUP_ERROR,
-    REGEX_EMPTY_GROUP_ERROR,
-    REGEX_EMPTY_GROUP_ERROR,
-    // Valid regular expressions.
-    1,
-    0,
-    2,
-    8,
-    7,
-    0,
-    9,
-    2,
-    3,
-    1,
-    3,
-    1,
-    1,
-    2,
-    2,
-    4,
-    5,
-    5,
-    0,
-    2,
-    2,
-    3,
-    3,
-    7,
-    1,
-    1,
-    1,
-    1,
-    1,
-    10,
-    9,
-    1,
-    1,
-    1,
-    3,
-    2,
-    7,
-    18,
-    1,
-    9,
-    //
-    STRING_EMPTY_ERROR
   };
 
 
   int done = 0;
   int i = -1;  // test index
-  int ji = -1; // index in jumps / jumpf / jumpi
   while (done == 0) {
     i++; // increment test index counter
+    regex_test_case *t = &test_cases[i];
 
     // ===============================================================
     //                          _count     
     // 
     // Count the number of tokens and groups in this regular expression.
     int n_tokens, n_groups;
-    _count(regexes[i], &n_tokens, &n_groups);
+    _count(t->regex, &n_tokens, &n_groups);
 
     // Verify the number of tokens and the number of groups..
-    if (n_tokens != true_n_tokens[i]) {
+    if (n_tokens != t->n_tokens) {
       printf("\nRegex: '");
-      for (int j = 0; regexes[i][j] != '\0'; j++) {
-      printf("%s", SAFE_CHAR(regexes[i][j]));
+      for (int j = 0; t->regex[j] != '\0'; j++) {
+      printf("%s", SAFE_CHAR(t->regex[j]));
       }
       printf("'\n\n");
       printf("ERROR: Wrong number of tokens returned by _count.\n");
-      printf(" expected %d\n", true_n_tokens[i]);
+      printf(" expected %d\n", t->n_tokens);
       printf(" received %d\n", n_tokens);
       return(1);
-    } else if (n_groups != true_n_groups[i]) {
+    } else if (n_groups != t->n_groups) {
       printf("\nRegex: '");
-      for (int j = 0; regexes[i][j] != '\0'; j++) {
-      printf("%s", SAFE_CHAR(regexes[i][j]));
+      for (int j = 0; t->regex[j] != '\0'; j++) {
+      printf("%s", SAFE_CHAR(t->regex[j]));
       }
       printf("'\n\n");
       printf("ERROR: Wrong number of groups returned by _count.\n");
-      printf(" expected %d\n", true_n_groups[i]);
+      printf(" expected %d\n", t->n_groups);
       printf(" received %d\n", n_groups);
       return(2);
     }
@@ -925,65 +503,64 @@ int run_tests() {
 
     // Determine the jump-to tokens upon successful match and failed
     // match at each token in the regular expression.
-    _set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+    _set_jump(t->regex, n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
 
     // Verify the the tokens, jumps, jumpf, and jumpi..
     for (int j = 0; j < n_tokens; j++) {
-      ji++; // (increment the test-wide counter for jumps)
-      if (tokens[j] != true_tokens[i][j]) {
+      if (tokens[j] != t->tokens[j]) {
       printf("\nRegex: '");
-      for (int j = 0; regexes[i][j] != '\0'; j++) {
-        printf("%s", SAFE_CHAR(regexes[i][j]));
+      for (int j = 0; t->regex[j] != '\0'; j++) {
+        printf("%s", SAFE_CHAR(t->regex[j]));
       }
       printf("'\n\n");
       // Re-run the code with debug printing enabled.
       DO_PRINT = 1;
-      _set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+      _set_jump(t->regex, n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
       printf("\n");
       printf("ERROR: Wrong TOKEN returned by _set_jump.\n");
-      printf(" expected '%s' as token %d\n", SAFE_CHAR(true_tokens[i][j]), j);
+      printf(" expected '%s' as token %d\n", SAFE_CHAR(t->tokens[j]), j);
       printf(" received '%s'\n", SAFE_CHAR(tokens[j]));
       return(3);
-      } else if (jumps[j] != true_jumps[ji]) {
+      } else if (jumps[j] != t->jumps[j]) {
       printf("\nRegex: '");
-      for (int j = 0; regexes[i][j] != '\0'; j++) {
-        printf("%s", SAFE_CHAR(regexes[i][j]));
+      for (int j = 0; t->regex[j] != '\0'; j++) {
+        printf("%s", SAFE_CHAR(t->regex[j]));
       }
       printf("'\n");
       // Re-run the code with debug printing enabled.
       DO_PRINT = 1;
-      _set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+      _set_jump(t->regex, n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
       printf("\n");
       printf("ERROR: Wrong JUMP S returned by _set_jump.\n");
-      printf(" expected %d in col 0, row %d\n", true_jumps[ji], j);
+      printf(" expected %d in col 0, row %d\n", t->jumps[j], j);
       printf(" received %d\n", jumps[j]);
       return(4);
-      } else if (jumpf[j] != true_jumpf[ji]) {
+      } else if (jumpf[j] != t->jumpf[j]) {
       printf("\nRegex: '");
-      for (int j = 0; regexes[i][j] != '\0'; j++) {
-        printf("%s", SAFE_CHAR(regexes[i][j]));
+      for (int j = 0; t->regex[j] != '\0'; j++) {
+        printf("%s", SAFE_CHAR(t->regex[j]));
       }
       printf("'\n");
       // Re-run the code with debug printing enabled.
       DO_PRINT = 1;
-      _set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+      _set_jump(t->regex, n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
       printf("\n");
       printf("ERROR: Wrong JUMP F returned by _set_jump.\n");
-      printf(" expected %d in col 1, row %d\n", true_jumpf[ji], j);
+      printf(" expected %d in col 1, row %d\n", t->jumpf[j], j);
       printf(" received %d\n", jumpf[j]);
       return(5);
-      } else if (jumpi[j] != true_jumpi[ji]) {
+      } else if (jumpi[j] != t->jumpi[j]) {
       printf("\nRegex: '");
-      for (int j = 0; regexes[i][j] != '\0'; j++) {
-        printf("%s", SAFE_CHAR(regexes[i][j]));
+      for (int j = 0; t->regex[j] != '\0'; j++) {
+        printf("%s", SAFE_CHAR(t->regex[j]));
       }
       printf("'\n");
       // Re-run the code with debug printing enabled.
       DO_PRINT = 1;
-      _set_jump(regexes[i], n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+      _set_jump(t->regex, n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
       printf("\n");
       printf("ERROR: Wrong JUMP I returned by _set_jump.\n");
-      printf(" expected %d in col 2, row %d\n", true_jumpi[ji], j);
+      printf(" expected %d in col 2, row %d\n", t->jumpi[j], j);
       printf(" received %d\n", jumpi[j]);
       return(6);
       }
@@ -998,30 +575,30 @@ int run_tests() {
     // 
     int start;
     int end;
-    match(regexes[i], strings[i], &start, &end);
+    match(t->regex, t->string, &start, &end);
 
-    if (start != match_starts[i]) {
+    if (start != t->match_start) {
           DO_PRINT = 1;
-          match(regexes[i], strings[i], &start, &end);
+          match(t->regex, t->string, &start, &end);
           printf("\nString: '");
-          for (int j = 0; strings[i][j] != '\0'; j++) {
-            printf("%s", SAFE_CHAR(strings[i][j]));
+          for (int j = 0; t->string[j] != '\0'; j++) {
+            printf("%s", SAFE_CHAR(t->string[j]));
           }
       printf("'\n\n");
       printf("ERROR: Bad match START returned by match.\n");
-      printf(" expected %d\n", match_starts[i]);
+      printf(" expected %d\n", t->match_start);
       printf(" received %d\n", start);
           return(7);
-    } else if (end != match_ends[i]) {
+    } else if (end != t->match_end) {
           DO_PRINT = 1;
-          match(regexes[i], strings[i], &start, &end);      
+          match(t->regex, t->string, &start, &end);      
           printf("\nString: '");
-          for (int j = 0; strings[i][j] != '\0'; j++) {
-            printf("%s", SAFE_CHAR(strings[i][j]));
+          for (int j = 0; t->string[j] != '\0'; j++) {
+            printf("%s", SAFE_CHAR(t->string[j]));
           }
       printf("'\n\n");
       printf("ERROR: Bad match END returned by match.\n");
-      printf(" expected %d\n", match_ends[i]);
+      printf(" expected %d\n", t->match_end);
       printf(" received %d\n", end);
           return(8);
     }
@@ -1029,7 +606,7 @@ int run_tests() {
     // -------------------------------------------------------------
 
     // Exit once the empty regex has been verified.
-    if (regexes[i][0] == '\0') done++;
+    if (t->regex[0] == '\0') done++;
   }
   
   printf("\n All tests PASSED.\n");
