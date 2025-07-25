@@ -71,6 +71,17 @@
 # 
 #                            C development
 # 
+#   Route all core matching logic to the same function, decorate for different
+#    types of input (string, file, iterator).
+#
+#   Support repeated calling with a single "compilation" of the regular
+#    expression. This is also necessary for streaming matches.
+#
+#   Remove 'matcha' in favor of an early stateful exit on match discovery.
+# 
+#   Create a version of 'match' that emits token group labels for
+#    every byte of a given matched string.
+# 
 #   The token following a ".*" can get excluded from the final match,
 #    because the 'start index' of that token is updated before the
 #    token after it is matched and the regex is completely discovered.
