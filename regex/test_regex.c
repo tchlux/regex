@@ -266,6 +266,18 @@ int run_tests() {
       "",      NULL, NULL, NULL,
       " ",     -5, REGEX_EMPTY_GROUP_ERROR },
 
+    { "(a}", -3, REGEX_SYNTAX_ERROR,
+      "",     NULL, NULL, NULL,
+      " ",    -3, REGEX_SYNTAX_ERROR },
+
+    { "{a)", -3, REGEX_SYNTAX_ERROR,
+      "",     NULL, NULL, NULL,
+      " ",    -3, REGEX_SYNTAX_ERROR },
+
+    { "a]", -2, REGEX_SYNTAX_ERROR,
+      "",    NULL, NULL, NULL,
+      " ",   -2, REGEX_SYNTAX_ERROR },
+
     // Valid regular expressions.
 
     { ".",    1, 0,

@@ -133,6 +133,9 @@ void _count(const char * regex, int * tokens, int * groups) {
   int i = 0;             // regex character index
   char token = regex[i]; // current character in regex
   int gc = 0;            // groups closed
+  int gi = -1;           // group index
+  int gs_size = 0;       // group stack size
+  char * gs = NULL;      // group stack
   char pt = '\0';        // previous token
   // Count tokens and groups.
   while (token != '\0') {
@@ -140,6 +143,11 @@ void _count(const char * regex, int * tokens, int * groups) {
     if (token == '[') {
       // Increment the count of the number of groups.
       (*groups)++;
+      if (gi+1 >= gs_size) {
+        gs_size = (gs_size == 0) ? 4 : 2*gs_size;
+        gs = realloc(gs, gs_size * sizeof(char));
+      }
+      gs[++gi] = token;
       int tokens_in_group = 0;
       // Loop until this character set is complete.
       i++;
@@ -169,10 +177,16 @@ void _count(const char * regex, int * tokens, int * groups) {
       // This group successfully closed.
       } else {
         gc++;
+        gi--;
       }
     // If this is the beginning of another type of group, count it.
     } else if ((token == '(') || (token == '{')) {
       (*groups)++;
+      if (gi+1 >= gs_size) {
+        gs_size = (gs_size == 0) ? 4 : 2*gs_size;
+        gs = realloc(gs, gs_size * sizeof(char));
+      }
+      gs[++gi] = token;
     // Check for invalid regular expressions
     } else if (
       // starts with a special character
@@ -191,17 +205,26 @@ void _count(const char * regex, int * tokens, int * groups) {
       gc = REGEX_SYNTAX_ERROR;
       break;
     // Close opened groups
-    } else if ((token == ')') || (token == '}')) {
+    } else if ((token == ')') || (token == ']') || (token == '}')) {
+      if ( (gi < 0) ||
+         ((token == ')') && (gs[gi] != '(')) ||
+         ((token == ']') && (gs[gi] != '[')) ||
+         ((token == '}') && (gs[gi] != '{')) ) {
+      (*tokens) = -i-1;
+      (*groups) = REGEX_SYNTAX_ERROR;
+      gc = REGEX_SYNTAX_ERROR;
+      break;
+      }
       gc++;
       // too many closed groups, or an empty group.
-      if ( (gc > (*groups)) ||
-         ((token == ')') && (pt == '(')) ||
+      if ( ((token == ')') && (pt == '(')) ||
          ((token == '}') && (pt == '{')) ) {
       (*tokens) = -i-1;
       (*groups) = REGEX_EMPTY_GROUP_ERROR;
       gc = REGEX_EMPTY_GROUP_ERROR;
       break;
       }
+      gi--;
     // If the character is counted (not special), count it as one.
     } else {
       (*tokens)++;
@@ -212,10 +235,11 @@ void _count(const char * regex, int * tokens, int * groups) {
     token = regex[i];
   }
   // Error if there are unclosed groups.
-  if (gc != (*groups)) {
+  if ((gc >= 0) && ((gc != (*groups)) || (gi >= 0))) {
     (*tokens) = -i-1;
     (*groups) = REGEX_UNCLOSED_GROUP_ERROR;
   }
+  free(gs);
   // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   // DEBUG: Show regex and number of tokens computed.
   #ifdef DEBUG
