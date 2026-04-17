@@ -975,7 +975,8 @@ void matcha(const char * regex, const char * string,
   #define MATCHA_STACK_NEXT_TOKEN(stack, si, in_stack) \
     if ((dest >= 0) && (val >= active[dest])) { \
       if (dest == n_tokens) { \
-        if ((n_found == 0) || ((*starts)[n_found-1] != val)) { \
+        const int end = (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
+        if ((n_found == 0) || ((*starts)[n_found-1] != val) || ((*ends)[n_found-1] != end)) { \
           (*n)++; \
           if (n_found >= s_found) { \
             if (s_found == 0) s_found = INITIAL_FOUND_SIZE; \
@@ -991,7 +992,7 @@ void matcha(const char * regex, const char * string,
             (*ends) = new_ends; \
           } \
           (*starts)[n_found] = val; \
-          (*ends)[n_found] = (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
+          (*ends)[n_found] = end; \
           n_found++; \
         } \
       } else { \
@@ -1199,7 +1200,8 @@ void fmatcha(const char * regex, const char * path,
   #define FMATCHA_STACK_NEXT_TOKEN(stack, si, in_stack) \
     if ((dest >= 0) && (val >= active[dest])) { \
       if (dest == n_tokens) { \
-        if ((n_found == 0) || ((*starts)[n_found-1] != val)) { \
+        const int end = (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
+        if ((n_found == 0) || ((*starts)[n_found-1] != val) || ((*ends)[n_found-1] != end)) { \
           (*n)++; \
           if (n_found >= s_found) { \
             if (s_found == 0) s_found = INITIAL_FOUND_SIZE; \
@@ -1218,7 +1220,7 @@ void fmatcha(const char * regex, const char * path,
             (*lines) = new_lines; \
           } \
           (*starts)[n_found] = val; \
-          (*ends)[n_found] = (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
+          (*ends)[n_found] = end; \
           (*lines)[n_found] = lines_read; \
           n_found++; \
         } \

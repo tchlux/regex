@@ -660,6 +660,15 @@ int run_tests() {
   }
   free(starts);
 
+  matcha("a?", "a", &n_matches, &starts, &ends);
+  if ((n_matches != 3) || (starts[0] != 0) || (ends[0] != 0) ||
+      (starts[1] != 0) || (ends[1] != 1) ||
+      (starts[2] != 1) || (ends[2] != 1)) {
+    printf("ERROR: Bad deduplicated matches returned by matcha.\n");
+    return(13);
+  }
+  free(starts);
+
   int * lines;
   fmatcha("hello", "regex/test.txt", &n_matches, &starts, &ends, &lines, 0.5);
   if ((n_matches != 3) || (starts[0] != 13) || (ends[0] != 18) ||
@@ -667,7 +676,7 @@ int run_tests() {
       (lines[1] != 8) || (starts[2] != 75) || (ends[2] != 80) ||
       (lines[2] != 9)) {
     printf("ERROR: Bad nonoverlapping matches returned by fmatcha.\n");
-    return(13);
+    return(14);
   }
   free(starts);
   
