@@ -702,14 +702,6 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
 
 // Do a simple regular experession match.
 void match(const char * regex, const char * string, int * start, int * end) {
-
-  // Check for an empty string.
-  if (string[0] == '\0') {
-    (*start) = EXIT_TOKEN;
-    (*end) = STRING_EMPTY_ERROR;
-    return;
-  }
-
   // Count the number of tokens and groups in this regular expression.
   int n_tokens, n_groups;
   _count(regex, &n_tokens, &n_groups);
@@ -908,13 +900,6 @@ void match(const char * regex, const char * string, int * start, int * end) {
 // Return arrays of the starts and ends of matches.
 void matcha(const char * regex, const char * string,
             int * n, int ** starts, int ** ends) {
-
-  // Check for an empty string.
-  if (string[0] == '\0') {
-    (*n) = -2;
-    return;
-  }
-
   // Count the number of tokens and groups in this regular expression.
   (*n) = -1;
   int n_tokens, n_groups;

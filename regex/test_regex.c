@@ -452,11 +452,19 @@ int run_tests() {
       "****",           (int[]){1,0,-1,-1}, (int[]){2,-1,3,4}, (char[]){0,2,2,2},
       "*paths*",        0, 3 },
 
+    { "a*", 2, 0,
+      "*a", (int[]){1,0}, (int[]){2,-1}, (char[]){0,0},
+      "",   0, 0 },
+
+    { "a", 1, 0,
+      "a", (int[]){1}, (int[]){-1}, (char[]){0},
+      "",  -1, 0 },
+
     // Last test regular expression must be empty!
 
     { "", 0, 0,
       "", NULL, NULL, NULL,
-      "", -1, STRING_EMPTY_ERROR  }
+      " ", -1, REGEX_NO_TOKENS_ERROR  }
 
   };
 
@@ -619,6 +627,21 @@ int run_tests() {
 
     // Exit once the empty regex has been verified.
     if (t->regex[0] == '\0') done++;
+  }
+
+  int n_matches;
+  int * starts;
+  int * ends;
+  matcha("a*", "", &n_matches, &starts, &ends);
+  if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 0)) {
+    printf("ERROR: Bad empty-string match returned by matcha.\n");
+    return(9);
+  }
+  free(starts);
+  matcha("a", "", &n_matches, &starts, &ends);
+  if (n_matches != 0) {
+    printf("ERROR: Bad empty-string no-match returned by matcha.\n");
+    return(10);
   }
   
   printf("\n All tests PASSED.\n");
