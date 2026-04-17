@@ -975,23 +975,25 @@ void matcha(const char * regex, const char * string,
   #define MATCHA_STACK_NEXT_TOKEN(stack, si, in_stack) \
     if ((dest >= 0) && (val >= active[dest])) { \
       if (dest == n_tokens) { \
-        (*n)++; \
-        if (n_found >= s_found) { \
-          if (s_found == 0) s_found = INITIAL_FOUND_SIZE; \
-          else s_found = 2*s_found; \
-          int * new_starts = malloc(3 * s_found * sizeof(int)); \
-          int * new_ends = new_starts + s_found; \
-          for (int index = 0; index < n_found; index++)      { \
-            new_starts[index] = (*starts)[index]; \
-            new_ends[index] = (*ends)[index]; \
+        if ((n_found == 0) || ((*starts)[n_found-1] != val)) { \
+          (*n)++; \
+          if (n_found >= s_found) { \
+            if (s_found == 0) s_found = INITIAL_FOUND_SIZE; \
+            else s_found = 2*s_found; \
+            int * new_starts = malloc(3 * s_found * sizeof(int)); \
+            int * new_ends = new_starts + s_found; \
+            for (int index = 0; index < n_found; index++)      { \
+              new_starts[index] = (*starts)[index]; \
+              new_ends[index] = (*ends)[index]; \
+            } \
+            if ((*starts) != NULL) free(*starts); \
+            (*starts) = new_starts; \
+            (*ends) = new_ends; \
           } \
-          if ((*starts) != NULL) free(*starts); \
-          (*starts) = new_starts; \
-          (*ends) = new_ends; \
+          (*starts)[n_found] = val; \
+          (*ends)[n_found] = (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
+          n_found++; \
         } \
-        (*starts)[n_found] = val; \
-        (*ends)[n_found] = (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
-        n_found++; \
       } else { \
         if (in_stack[dest] == 0) { \
           si++; \
@@ -1051,6 +1053,14 @@ void matcha(const char * regex, const char * string,
     incs = inns; // set "in current stack"
     inns = (char*) temp; // set "in next stack"
     ins = -1; // reset the count of elements in "next stack"
+
+    // Restart at the next index if no tokens remain active.
+    if ((ics < 0) && (c != '\0')) {
+      ics = 0;
+      cstack[ics] = 0;
+      active[0] = i+1;
+      incs[0] = 1;
+    }
 
     // If the just-parsed character was the end of the string, then break.
     if (c == '\0') {
@@ -1189,27 +1199,29 @@ void fmatcha(const char * regex, const char * path,
   #define FMATCHA_STACK_NEXT_TOKEN(stack, si, in_stack) \
     if ((dest >= 0) && (val >= active[dest])) { \
       if (dest == n_tokens) { \
-        (*n)++; \
-        if (n_found >= s_found) { \
-          if (s_found == 0) s_found = INITIAL_FOUND_SIZE; \
-          else s_found = 2*s_found; \
-          int * new_starts = malloc(3 * s_found * sizeof(int)); \
-          int * new_ends = new_starts + s_found; \
-          int * new_lines = new_ends + s_found;  \
-          for (int index = 0; index < n_found; index++)      { \
-            new_starts[index] = (*starts)[index]; \
-            new_ends[index] = (*ends)[index]; \
-            new_lines[index] = (*lines)[index]; \
+        if ((n_found == 0) || ((*starts)[n_found-1] != val)) { \
+          (*n)++; \
+          if (n_found >= s_found) { \
+            if (s_found == 0) s_found = INITIAL_FOUND_SIZE; \
+            else s_found = 2*s_found; \
+            int * new_starts = malloc(3 * s_found * sizeof(int)); \
+            int * new_ends = new_starts + s_found; \
+            int * new_lines = new_ends + s_found;  \
+            for (int index = 0; index < n_found; index++)      { \
+              new_starts[index] = (*starts)[index]; \
+              new_ends[index] = (*ends)[index]; \
+              new_lines[index] = (*lines)[index]; \
+            } \
+            if ((*starts) != NULL) free(*starts); \
+            (*starts) = new_starts; \
+            (*ends) = new_ends; \
+            (*lines) = new_lines; \
           } \
-          if ((*starts) != NULL) free(*starts); \
-          (*starts) = new_starts; \
-          (*ends) = new_ends; \
-          (*lines) = new_lines; \
+          (*starts)[n_found] = val; \
+          (*ends)[n_found] = (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
+          (*lines)[n_found] = lines_read; \
+          n_found++; \
         } \
-        (*starts)[n_found] = val; \
-        (*ends)[n_found] = (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
-        (*lines)[n_found] = lines_read; \
-        n_found++; \
       } else { \
         if (in_stack[dest] == 0) { \
           si++; \
@@ -1277,6 +1289,14 @@ void fmatcha(const char * regex, const char * path,
     incs = inns; // set "in current stack"
     inns = (char*) temp; // set "in next stack"
     ins = -1; // reset the count of elements in "next stack"
+
+    // Restart at the next index if no tokens remain active.
+    if ((ics < 0) && (c != EOF)) {
+      ics = 0;
+      cstack[ics] = 0;
+      active[0] = i+1;
+      incs[0] = 1;
+    }
 
     // If the just-parsed character was the end of the string, then break.
     if (c == EOF) {

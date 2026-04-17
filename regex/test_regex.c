@@ -643,6 +643,33 @@ int run_tests() {
     printf("ERROR: Bad empty-string no-match returned by matcha.\n");
     return(10);
   }
+
+  matcha("a|a", "baa", &n_matches, &starts, &ends);
+  if ((n_matches != 2) || (starts[0] != 1) || (ends[0] != 2) ||
+      (starts[1] != 2) || (ends[1] != 3)) {
+    printf("ERROR: Bad restarted match returned by matcha.\n");
+    return(11);
+  }
+  free(starts);
+
+  matcha("aa", "aaaa", &n_matches, &starts, &ends);
+  if ((n_matches != 2) || (starts[0] != 0) || (ends[0] != 2) ||
+      (starts[1] != 2) || (ends[1] != 4)) {
+    printf("ERROR: Bad nonoverlapping matches returned by matcha.\n");
+    return(12);
+  }
+  free(starts);
+
+  int * lines;
+  fmatcha("hello", "regex/test.txt", &n_matches, &starts, &ends, &lines, 0.5);
+  if ((n_matches != 3) || (starts[0] != 13) || (ends[0] != 18) ||
+      (lines[0] != 3) || (starts[1] != 69) || (ends[1] != 74) ||
+      (lines[1] != 8) || (starts[2] != 75) || (ends[2] != 80) ||
+      (lines[2] != 9)) {
+    printf("ERROR: Bad nonoverlapping matches returned by fmatcha.\n");
+    return(13);
+  }
+  free(starts);
   
   printf("\n All tests PASSED.\n");
   // Successful return.
