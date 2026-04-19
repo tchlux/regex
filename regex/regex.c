@@ -784,20 +784,19 @@ void match(const char * regex, const char * string, int * start, int * end) {
   //   return
   #define MATCH_STACK_NEXT_TOKEN(stack, si, in_stack)\
     if ((dest >= 0) && (val >= active[dest])) {\
-      if (in_stack[dest] == 0) {\
-        si++;\
-        stack[si] = dest;\
-      }\
       if (dest == n_tokens) {\
         (*start) = val;\
         (*end) = i;\
         if ((jumpi[j]) || (ct != '*')) (*end)++;\
         free(jumps);\
         return;\
-      } else {\
-        in_stack[dest] = 1;\
-        if (active[dest] == EXIT_TOKEN) active[dest] = val;\
       }\
+      if (in_stack[dest] == 0) {\
+        si++;\
+        stack[si] = dest;\
+      }\
+      in_stack[dest] = 1;\
+      if (active[dest] == EXIT_TOKEN) active[dest] = val;\
     }
 
   // Start searching for a regular expression match. (the character
