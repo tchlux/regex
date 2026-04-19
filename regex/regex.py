@@ -147,6 +147,8 @@ with open(os.path.join(ABOUT_DIR,"version.txt")) as f:
 
 # Import ctypes for loading the underlying C regex library.
 import ctypes
+libc = ctypes.CDLL(None)
+libc.free.argtypes = [ctypes.c_void_p]
 
 # --------------------------------------------------------------------
 #                 Darwin (macOS) / Linux (Ubuntu) import
@@ -170,6 +172,9 @@ except:
 # Exception to raise when errors are reported by the regex library.
 class RegexError(Exception): pass
 
+LABEL_NO_MATCH_ERROR = -6
+SET_TOKEN_BODY = 1
+SET_TOKEN_LAST = 2
 
 WHITESPACE = ''.join(list(map(chr,(32,9,10,11,12,13))))  # space, tab, newline, .., .., carriage return
 DIGITS = "0123456789"
@@ -258,6 +263,142 @@ def translate_return_values(regex, start, end):
                 err += f"  {(-start)*' '}^"
             else: err += "."
             raise(RegexError(err))
+
+
+# Escape control characters for readable regex/token displays.
+# 
+# Arguments:
+#   value (str): single-character string to render safely
+# 
+# Returns:
+#   (str): printable display for the character
+# 
+def _safe_char(value: str) -> str:
+    if (value == "\n"): return "\\n"
+    if (value == "\t"): return "\\t"
+    if (value == "\r"): return "\\r"
+    if (value == "\0"): return "\\0"
+    return value
+
+
+# Compile a translated regex into canonical tokens and token-set flags.
+# 
+# Arguments:
+#   regex (str): translated regex for compilation
+# 
+# Returns:
+#   (tuple): compiled token displays and token-set flags
+# 
+def _compiled_regex(regex):
+    if (type(regex) == str): regex = regex.encode("utf-8")
+    n_tokens = ctypes.c_int()
+    n_groups = ctypes.c_int()
+    # Parse the regex first so Python can surface regex errors before inspection.
+    clib._count(ctypes.c_char_p(regex), ctypes.byref(n_tokens), ctypes.byref(n_groups))
+    if (n_tokens.value < 0): translate_return_values(regex, n_tokens.value, n_groups.value)
+    if (n_tokens.value == 0): return [], []
+    tokens = (ctypes.c_char*(n_tokens.value+1))()
+    jumps = (ctypes.c_int*n_tokens.value)()
+    jumpf = (ctypes.c_int*n_tokens.value)()
+    jumpi = (ctypes.c_char*(n_tokens.value+1))()
+    # Compile the regex exactly the way the C matcher does.
+    clib._set_jump(ctypes.c_char_p(regex), n_tokens.value, n_groups.value,
+                   tokens, jumps, jumpf, jumpi)
+    token_chars = tokens.raw[:n_tokens.value].decode("utf-8")
+    token_sets = list(jumpi.raw[:n_tokens.value])
+    displays = []
+    for i, token in enumerate(token_chars):
+        token = _safe_char(token)
+        # Mark token-set boundaries so the compiled view is readable.
+        if (token_sets[i] == SET_TOKEN_BODY) and ((i == 0) or (token_sets[i-1] != SET_TOKEN_BODY)):
+            token = "[" + token
+        if (token_sets[i] == SET_TOKEN_LAST):
+            token = token + "]"
+        displays.append(token)
+    return displays, token_sets
+
+
+# Label each byte in an exact matched window with compiled token indices.
+# 
+# Arguments:
+#   regex (str): regex supplied by the caller
+#   string (str | bytes): exact matched window to label
+#   translate_kwargs (dict): options forwarded to translate_regex
+# 
+# Returns:
+#   (list): token index per byte, or None if the window does not match exactly
+# 
+def label(regex, string, **translate_kwargs):
+    regex = translate_regex(regex, **translate_kwargs)
+    # Validate the compiled regex first so Python raises the usual regex errors.
+    _compiled_regex(regex)
+    labels = ctypes.c_void_p()
+    if (type(regex) == str): regex = regex.encode("utf-8")
+    if (type(string) == str): string = string.encode("utf-8")
+    # Ask the C helper to label the exact window and translate the no-match sentinel.
+    n = clib.label(ctypes.c_char_p(regex), ctypes.c_char_p(string), ctypes.byref(labels))
+    if (n == LABEL_NO_MATCH_ERROR): return None
+    if (n == 0): return []
+    values = list((ctypes.c_int*n).from_address(labels.value))
+    libc.free(labels.value)
+    return values
+
+
+# Format a labeled match window so characters and token ids line up.
+# 
+# Arguments:
+#   label_values (list[int]): token labels for each byte in the match window
+#   string (str): source string that contains the match
+#   start (int): inclusive match start
+#   end (int): exclusive match end
+# 
+# Returns:
+#   (str): formatted character and label rows for the match window
+# 
+def _format_labels(label_values, string, start, end):
+    chars = list(map(_safe_char, string[start:end]))
+    widths = [max(len(chars[i]), len(str(label_values[i]))) for i in range(len(label_values))]
+    # Pad each displayed byte so the aligned token indices remain readable.
+    char_row = " ".join(chars[i].ljust(widths[i]) for i in range(len(chars)))
+    label_row = " ".join(str(label_values[i]).ljust(widths[i]) for i in range(len(label_values)))
+    return f"Window : {char_row}\nLabels : {label_row}"
+
+
+# Show the translated regex, compiled tokens, and byte labels for each match.
+# 
+# Arguments:
+#   regex (str): regex supplied by the caller
+#   string (str): string to inspect
+#   translate_kwargs (dict): options forwarded to translate_regex
+# 
+# Returns:
+#   (str): formatted inspection report
+# 
+def show_label(regex, string, **translate_kwargs):
+    prefixed = translate_regex(regex, **translate_kwargs)
+    tokens, _ = _compiled_regex(prefixed)
+    widths = [max(len(token), len(str(i))) for i, token in enumerate(tokens)]
+    # Pad compiled tokens so their canonical indices align underneath.
+    compiled = " ".join(tokens[i].ljust(widths[i]) for i in range(len(tokens))) if tokens else "(empty)"
+    indices = " ".join(str(i).ljust(widths[i]) for i in range(len(tokens))) if tokens else ""
+    starts, ends = matcha(regex, string, **translate_kwargs)
+    lines = [
+        f"Regex    : {regex}",
+        f"Prefixed : {prefixed}",
+        f"Compiled : {compiled}",
+    ]
+    if (indices): lines.append(f"Indices  : {indices}")
+    lines.append(f"Input    : {''.join(map(_safe_char, string))}")
+    if (len(starts) == 0):
+        lines.append("Matches  : none")
+    for i, (start, end) in enumerate(zip(starts, ends), start=1):
+        labels = label("^" + prefixed, string[start:end])
+        lines.append(f"Match {i:<2d}: {start} -> {end}")
+        # Render the exact matched window and the labels returned by the C helper.
+        lines.append(_format_labels(labels, string, start, end))
+    report = "\n".join(lines)
+    print(report)
+    return report
 
 
 # Find a match for the given regex in string.
@@ -466,6 +607,11 @@ def main():
         recursive = False
         sys.argv.remove("-n")
     else: recursive = True
+    # Extract the "label" optional flag if it exists.
+    if ("-l" in sys.argv):
+        show_labels = True
+        sys.argv.remove("-l")
+    else: show_labels = False
     # Extract the "case sensitive" optional flag if it exists.
     if ("-c" in sys.argv):
         case_sensitive = True
@@ -482,7 +628,10 @@ def main():
 ERROR: Only {len(sys.argv)} command line argument{'s' if len(sys.argv) > 1 else ''} provided.
 
 Expected call to look like:
-  python3 -m regex [-n] [-c] [-s] "<search-pattern>" ["<path-pattern-1>"] ["<path-pattern-2>"] [...]
+  python3 -m regex [-l] [-n] [-c] [-s] "<search-pattern>" ["<path-pattern-1>"] ["<path-pattern-2>"] [...]
+
+"-l" is provided if the call should show translated / compiled regex
+tokens and byte labels for the given string instead of searching files.
 
 "-n" is provided if the call to `frex` should NOT recursively
 search all files in the directory tree from the current directory.
@@ -499,6 +648,11 @@ documentation including the regular expression language specification.
 ''')
         exit()
     regex = sys.argv[1]
+    if show_labels:
+        if (len(sys.argv) < 3):
+            raise(ValueError("Label mode requires a regex and a string."))
+        show_label(regex, sys.argv[2], case_sensitive=case_sensitive)
+        return
     print("Given regex:",str([regex])[1:-1])
     print("Using regex:",str([translate_regex(regex,case_sensitive)])[1:-1])
     path_patterns = sys.argv[2:]
@@ -516,7 +670,7 @@ documentation including the regular expression language specification.
 
 
 # When using "from regex import *", only get these variables:
-__all__ = [RegexError, match, frex, match, matcha, main]
+__all__ = [RegexError, match, frex, match, matcha, label, show_label, main]
 
 # cd ~/Git/Old/VarSys/3-Dissertation ; python3 -m regex "poetry"
 if __name__ == "__main__":

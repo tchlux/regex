@@ -98,6 +98,7 @@
 #define REGEX_SYNTAX_ERROR -3
 #define REGEX_EMPTY_GROUP_ERROR -4
 #define STRING_EMPTY_ERROR -5
+#define LABEL_NO_MATCH_ERROR -6
 #define REGULAR_TOKEN 0
 #define SET_TOKEN_BODY 1
 #define SET_TOKEN_LAST 2
@@ -123,6 +124,12 @@
 /*     int    line_no; */
 /*   } f; */
 /* } Chars; */
+
+typedef struct {
+  int parent;
+  int byte;
+  int token;
+} trace_node;
 
 
 // Count the number of tokens and groups in a regular expression.
@@ -895,6 +902,166 @@ void match(const char * regex, const char * string, int * start, int * end) {
   free(jumps); // free all memory that was allocated
   return;
 } 
+
+// Label all bytes in an exact regex match with canonical compiled token indices.
+int label(const char * regex, const char * string, int ** labels) {
+  *labels = NULL;
+  int string_len = 0;
+  while (string[string_len] != '\0') string_len++;
+
+  int n_tokens, n_groups;
+  _count(regex, &n_tokens, &n_groups);
+  if (n_tokens <= 0) {
+    if (n_tokens == 0) return REGEX_NO_TOKENS_ERROR;
+    return n_groups;
+  }
+
+  const int mem_bytes = ((7*n_tokens+1)*sizeof(int) + (4*n_tokens+2)*sizeof(char));
+  int * jumps = malloc(mem_bytes);
+  int * jumpf = jumps + n_tokens;
+  int * active = jumpf + n_tokens;
+  int * cstack = active + n_tokens+1;
+  int * nstack = cstack + n_tokens;
+  int * ctrace = nstack + n_tokens;
+  int * ntrace = ctrace + n_tokens;
+  char * tokens = (char*) (ntrace + n_tokens);
+  char * jumpi = tokens + n_tokens+1;
+  char * incs = jumpi + n_tokens+1;
+  char * inns = incs + n_tokens;
+  tokens[n_tokens] = '\0';
+  jumpi[n_tokens] = '\0';
+
+  _set_jump(regex, n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+  active[n_tokens] = EXIT_TOKEN;
+  for (int j = 0; j < n_tokens; j++) {
+    if ((! jumpi[j]) && ((tokens[j] == '?') || (tokens[j] == '|')))
+      tokens[j] = '*';
+    active[j] = EXIT_TOKEN;
+    incs[j] = 0;
+    inns[j] = 0;
+  }
+
+  int i = 0;
+  char c = string[i];
+  int ics = 0;
+  int ins = -1;
+  int dest;
+  void * temp;
+  cstack[ics] = 0;
+  active[0] = 0;
+  ctrace[ics] = 0;
+  incs[0] = 1;
+
+  int traces_used = 1;
+  int traces_size = 8;
+  trace_node * traces = malloc(sizeof(trace_node) * traces_size);
+  traces[0].parent = EXIT_TOKEN;
+  traces[0].byte = EXIT_TOKEN;
+  traces[0].token = EXIT_TOKEN;
+
+  #define ADD_TRACE(parent_id, byte_index, token_index)                            \
+    if (traces_used >= traces_size) {                                              \
+      traces_size = 2 * traces_size;                                               \
+      traces = realloc(traces, sizeof(trace_node) * traces_size);                  \
+    }                                                                              \
+    traces[traces_used].parent = parent_id;                                        \
+    traces[traces_used].byte = byte_index;                                         \
+    traces[traces_used].token = token_index;                                       \
+    new_trace = traces_used;                                                       \
+    traces_used++;
+
+  #define LABEL_STACK_NEXT_TOKEN(stack, trace_stack, si, in_stack, consume)          \
+    if ((dest >= 0) && (val >= active[dest])) {                                      \
+      int new_trace = parent_trace;                                                  \
+      if (consume) { ADD_TRACE(parent_trace, i, j); }                                \
+      if (dest == n_tokens) {                                                        \
+        const int end = (((jumpi[j]) || (ct != '*')) ? i+1 : i);                     \
+        if (end == string_len) {                                                     \
+          if (string_len > 0) {                                                      \
+            (*labels) = malloc(sizeof(int) * string_len);                            \
+            for (int index = 0; index < string_len; index++) (*labels)[index] = EXIT_TOKEN; \
+            for (int trace = new_trace; trace > 0; trace = traces[trace].parent) {   \
+              if (traces[trace].byte >= 0) (*labels)[traces[trace].byte] = traces[trace].token; \
+            }                                                                        \
+            for (int index = 0; index < string_len; index++) {                       \
+              if ((*labels)[index] == EXIT_TOKEN) {                                  \
+                free(*labels);                                                       \
+                (*labels) = NULL;                                                    \
+                break;                                                               \
+              }                                                                      \
+            }                                                                        \
+            if ((*labels) != NULL) {                                                 \
+              free(traces);                                                          \
+              free(jumps);                                                           \
+              return string_len;                                                     \
+            }                                                                        \
+          } else {                                                                   \
+            free(traces);                                                            \
+            free(jumps);                                                             \
+            return 0;                                                                \
+          }                                                                          \
+        }                                                                            \
+      } else {                                                                       \
+        if (in_stack[dest] == 0) {                                                   \
+          si++;                                                                      \
+          stack[si] = dest;                                                          \
+          trace_stack[si] = new_trace;                                               \
+          in_stack[dest] = 1;                                                        \
+        }                                                                            \
+        if (active[dest] == EXIT_TOKEN) active[dest] = val;                          \
+      }                                                                              \
+    }
+
+  do {
+    while (ics >= 0) {
+      const int j = cstack[ics];
+      const int parent_trace = ctrace[ics];
+      ics--;
+      incs[j] = 0;
+      const char ct = tokens[j];
+      int val = active[j];
+      if ((ct == '*') && (! jumpi[j])) {
+        if (j == 0) val = i;
+        dest = jumps[j];
+        LABEL_STACK_NEXT_TOKEN(cstack, ctrace, ics, incs, 0);
+        dest = jumpf[j];
+        LABEL_STACK_NEXT_TOKEN(cstack, ctrace, ics, incs, 0);
+      } else if ((c == ct) || ((ct == '.') && (! jumpi[j]) && (c != '\0'))) {
+        dest = jumps[j];
+        LABEL_STACK_NEXT_TOKEN(nstack, ntrace, ins, inns, 1);
+      } else {
+        dest = jumpf[j];
+        if (jumpi[j] == SET_TOKEN_BODY) {
+          LABEL_STACK_NEXT_TOKEN(cstack, ctrace, ics, incs, 0);
+        } else if (jumpi[j] == SET_TOKEN_LAST) {
+          LABEL_STACK_NEXT_TOKEN(nstack, ntrace, ins, inns, 1);
+        } else {
+          LABEL_STACK_NEXT_TOKEN(nstack, ntrace, ins, inns, 0);
+        }
+      }
+    }
+
+    temp = (void*) cstack;
+    cstack = nstack;
+    ics = ins;
+    nstack = (int*) temp;
+    temp = (void*) ctrace;
+    ctrace = ntrace;
+    ntrace = (int*) temp;
+    temp = (void*) incs;
+    incs = inns;
+    inns = (char*) temp;
+    ins = -1;
+
+    if (c == '\0') break;
+    i++;
+    c = string[i];
+  } while (ics >= 0);
+
+  free(traces);
+  free(jumps);
+  return LABEL_NO_MATCH_ERROR;
+}
 
 // Find all nonoverlapping matches of a regular expression in a string.
 // Return arrays of the starts and ends of matches.

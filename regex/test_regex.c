@@ -632,23 +632,76 @@ int run_tests() {
   int n_matches;
   int * starts;
   int * ends;
+  int * labels;
   matcha("a*", "", &n_matches, &starts, &ends);
   if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 0)) {
     printf("ERROR: Bad empty-string match returned by matcha.\n");
     return(9);
   }
   free(starts);
+
+  if (label("rx", "rx", &labels) != 2 || labels[0] != 0 || labels[1] != 1) {
+    printf("ERROR: Bad literal labels returned by label.\n");
+    return(10);
+  }
+  free(labels);
+
+  if (label("a*", "aaa", &labels) != 3 || labels[0] != 1 ||
+      labels[1] != 1 || labels[2] != 1) {
+    printf("ERROR: Bad repeated-token labels returned by label.\n");
+    return(11);
+  }
+  free(labels);
+
+  if (label(".*rx", "find the symbol 'rx", &labels) != 19) {
+    printf("ERROR: Bad wildcard label length returned by label.\n");
+    return(12);
+  }
+  for (int index = 0; index < 17; index++) {
+    if (labels[index] != 1) {
+      printf("ERROR: Bad wildcard prefix labels returned by label.\n");
+      return(13);
+    }
+  }
+  if (labels[17] != 2 || labels[18] != 3) {
+    printf("ERROR: Bad wildcard suffix labels returned by label.\n");
+    return(14);
+  }
+  free(labels);
+
+  if (label("[ab]", "b", &labels) != 1 || labels[0] != 1) {
+    printf("ERROR: Bad token-set labels returned by label.\n");
+    return(15);
+  }
+  free(labels);
+
+  if (label("{[ab]}", "c", &labels) != 1 || labels[0] != 1) {
+    printf("ERROR: Bad negated token-set labels returned by label.\n");
+    return(16);
+  }
+  free(labels);
+
+  if (label("aa", "aaa", &labels) != LABEL_NO_MATCH_ERROR || labels != NULL) {
+    printf("ERROR: Bad exact-window no-match returned by label.\n");
+    return(17);
+  }
+
+  if (label("a*", "", &labels) != 0 || labels != NULL) {
+    printf("ERROR: Bad empty-match labels returned by label.\n");
+    return(18);
+  }
+
   matcha("a", "", &n_matches, &starts, &ends);
   if (n_matches != 0) {
     printf("ERROR: Bad empty-string no-match returned by matcha.\n");
-    return(10);
+    return(19);
   }
 
   matcha("a|a", "baa", &n_matches, &starts, &ends);
   if ((n_matches != 2) || (starts[0] != 1) || (ends[0] != 2) ||
       (starts[1] != 2) || (ends[1] != 3)) {
     printf("ERROR: Bad restarted match returned by matcha.\n");
-    return(11);
+    return(20);
   }
   free(starts);
 
@@ -656,7 +709,7 @@ int run_tests() {
   if ((n_matches != 2) || (starts[0] != 0) || (ends[0] != 2) ||
       (starts[1] != 2) || (ends[1] != 4)) {
     printf("ERROR: Bad nonoverlapping matches returned by matcha.\n");
-    return(12);
+    return(21);
   }
   free(starts);
 
@@ -665,7 +718,7 @@ int run_tests() {
       (starts[1] != 0) || (ends[1] != 1) ||
       (starts[2] != 1) || (ends[2] != 1)) {
     printf("ERROR: Bad deduplicated matches returned by matcha.\n");
-    return(13);
+    return(22);
   }
   free(starts);
 
@@ -676,7 +729,7 @@ int run_tests() {
       (lines[1] != 8) || (starts[2] != 75) || (ends[2] != 80) ||
       (lines[2] != 9)) {
     printf("ERROR: Bad nonoverlapping matches returned by fmatcha.\n");
-    return(14);
+    return(23);
   }
   free(starts);
   
