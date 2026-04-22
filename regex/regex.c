@@ -1403,18 +1403,19 @@ void fmatcha(const char * regex, const char * path,
   // Start searching for a regular expression match. (the character
   // 'c' is checked for null value at the end of the loop.
   do {
+    if (c != EOF) {
+      bytes_read++;
+      if ((((unsigned char) c) < 128) && (c != '\0')) ascii_count++;
+      if ((bytes_read >= MIN_SAMPLE_SIZE) &&
+          ((ascii_count / bytes_read) < min_ascii_ratio)) {
+        (*n) = -3;
+        break;
+      }
+    }
     // Continue popping active elements from the current stack and
     // checking them for a match and jump conditions, add next tokens
     // to the next stack.
     while (ics >= 0) {
-      // Record the ASCII fraction, exit if file is too non-ASCII.
-      if ((c < 128) && (c != '\0')) {
-        ascii_count++;
-      } else if ((i >= MIN_SAMPLE_SIZE) &&
-                 ((ascii_count / i) < min_ascii_ratio)) {
-        (*n) = -3;
-        break;
-      }
       // Pop next token to check from the stack.
       const int j = cstack[ics];
       ics--;

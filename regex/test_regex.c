@@ -732,6 +732,26 @@ int run_tests() {
     return(23);
   }
   free(starts);
+
+  char * ascii_ratio_path = "/tmp/regex_ascii_ratio_test.bin";
+  FILE * ascii_ratio_file = fopen(ascii_ratio_path, "wb");
+  if (ascii_ratio_file == NULL) {
+    printf("ERROR: Failed to create temporary ASCII ratio test file.\n");
+    return(24);
+  }
+  for (int index = 0; index < 49; index++) fputc('a', ascii_ratio_file);
+  for (int index = 0; index < 52; index++) fputc('\0', ascii_ratio_file);
+  fclose(ascii_ratio_file);
+
+  starts = NULL;
+  ends = NULL;
+  lines = NULL;
+  fmatcha(".*a", ascii_ratio_path, &n_matches, &starts, &ends, &lines, 0.5);
+  remove(ascii_ratio_path);
+  if (n_matches != -3) {
+    printf("ERROR: Bad ASCII ratio handling returned by fmatcha.\n");
+    return(25);
+  }
   
   printf("\n All tests PASSED.\n");
   // Successful return.
