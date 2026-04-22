@@ -1098,7 +1098,7 @@ void matcha(const char * regex, const char * string,
   int * nstack = cstack + n_tokens; // next stack of active tokens
   char * tokens = (char*) (nstack + n_tokens); // regex index of each token (character)
   char * jumpi = tokens + n_tokens + 1; // immediately check next on failure
-  char * incs = jumpi + n_tokens; // token flags for "in current stack"
+  char * incs = jumpi + n_tokens + 1; // token flags for "in current stack"
   char * inns = incs + n_tokens; // token flags for "in next stack"
   // Terminate the two character arrays with the null character.
   tokens[n_tokens] = '\0';
@@ -1291,6 +1291,7 @@ void fmatcha(const char * regex, const char * path,
       (*starts)[0] = n_tokens;
       (*ends)[0] = n_groups;
     }
+    fclose(file);
     return;
   }
 
@@ -1306,7 +1307,7 @@ void fmatcha(const char * regex, const char * path,
   int * nstack = cstack + n_tokens; // next stack of active tokens
   char * tokens = (char*) (nstack + n_tokens); // regex index of each token (character)
   char * jumpi = tokens + n_tokens + 1; // immediately check next on failure
-  char * incs = jumpi + n_tokens; // token flags for "in current stack"
+  char * incs = jumpi + n_tokens + 1; // token flags for "in current stack"
   char * inns = incs + n_tokens; // token flags for "in next stack"
   // Terminate the two character arrays with the null character.
   tokens[n_tokens] = '\0';
