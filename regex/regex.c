@@ -1320,9 +1320,8 @@ void fmatcha(const char * regex, const char * path,
   if (file_size < buffer_size)
     buffer_size = file_size+1; // set the buffer size smaller if appropriate
   char * file_buff = malloc(sizeof(char)*buffer_size); // storage for the file contents
-  int bytes_buffered = fread(file_buff, sizeof(char), buffer_size, file);
-  int ib = 0; // index in buffer.
-  if (bytes_buffered < buffer_size) file_buff[bytes_buffered] = EOF;
+  size_t bytes_buffered = fread(file_buff, sizeof(char), buffer_size, file);
+  size_t ib = 0; // index in buffer.
 
   // Determine the jump-to tokens upon successful match and failed
   // match at each token in the regular expression.
@@ -1341,7 +1340,7 @@ void fmatcha(const char * regex, const char * path,
 
   // Set the current index in the file.
   int i = 0; // current index in file
-  int c = file_buff[ib]; // get current character in file
+  int c = (ib < bytes_buffered) ? (unsigned char) file_buff[ib] : EOF; // get current character in file
   int ics = 0; // index in current stack
   int ins = -1; // index in next stack
   int dest; // index of next token (for jump)
@@ -1475,13 +1474,12 @@ void fmatcha(const char * regex, const char * path,
       i++;
       ib++;
       // Read another chunk of the file.
-      if (ib >= buffer_size) {
+      if (ib >= bytes_buffered) {
         // Reset the index in the buffer and read next character set.
         ib = 0;
         bytes_buffered = fread(file_buff, sizeof(char), buffer_size, file);
-        if (bytes_buffered < buffer_size) file_buff[bytes_buffered] = EOF;
       }
-      c = file_buff[ib];
+      c = (ib < bytes_buffered) ? (unsigned char) file_buff[ib] : EOF;
       // Increment the number of lines read.
       if (c == '\n') lines_read++;
 
