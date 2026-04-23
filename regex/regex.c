@@ -204,6 +204,8 @@ void _count(const char * regex, int * tokens, int * groups) {
        ((pt == '*') || (pt == '?') || (pt == '(') || (pt == '{') || (pt == '|'))) ||
       // illegally placed ), ], or } after a |
       ((i > 0) && (pt == '|') && ((token == ')') || (token == ']') || (token == '}'))) ||
+      // | with no left argument
+      ((token == '|') && ((pt == '(') || (pt == '{') || (pt == '|'))) ||
       // | at the end of the regex
       ((token == '|') && (regex[i+1] == '\0'))
     ) {

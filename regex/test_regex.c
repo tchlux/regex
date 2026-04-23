@@ -214,6 +214,14 @@ int run_tests() {
       "",      NULL, NULL, NULL,
       " ",     -5, REGEX_SYNTAX_ERROR },
 
+    { "(|a)", -2, REGEX_SYNTAX_ERROR,
+      "",     NULL, NULL, NULL,
+      " ",    -2, REGEX_SYNTAX_ERROR },
+
+    { "a||b", -3, REGEX_SYNTAX_ERROR,
+      "",     NULL, NULL, NULL,
+      " ",    -3, REGEX_SYNTAX_ERROR },
+
     { "abc**", -5, REGEX_SYNTAX_ERROR,
       "",      NULL, NULL, NULL,
       " ",     -5, REGEX_SYNTAX_ERROR },
