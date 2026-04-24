@@ -17,7 +17,7 @@
 //         capture any (special) characters except ']'
 //     {}  logical NOT, reverse behavior of successful and failed matches
 //
-//  The regular expression matcher is accessible through the function:
+//  The regular expression matcher is accessible through the functions:
 // 
 //   void match(regex, string, start, end)
 //     (const char *) regex -- A null-terminated simple regular expression.
@@ -25,20 +25,34 @@
 //     (int *) start -- The (pass by reference) start of the first match.
 //                      If there is no match this value is -1.
 //     (int *) end -- The (pass by reference) end (noninclusive) of the
-//                    first match. If *start is -1, contains error code.
+//                    first match. If *start is negative, contains an
+//                    error code (0 for no match).
+//
+//   int label(regex, string, labels)
+//     Label each byte in an exact match with its compiled token index.
+//
+//   void matcha(regex, string, n, starts, ends)
+//     Find all nonoverlapping matches in a null-terminated string.
+//
+//   void fmatcha(regex, path, n, starts, ends, lines, min_ascii_ratio)
+//     Find all nonoverlapping matches in a file at a given path.
 // 
 // 
 // ERROR CODES
-//  These codes are returned in "end" when "start<0".
-//   0  Successful execution, no match found.
-//   1  Regex error, no tokens.
-//   2  Regex error, unterminated token set of character literals.
-//   3  Regex error, bad syntax (i.e., starts with ')', '*', '?',
-//        or '|', empty second argument to '|', or bad token
-//        preceding '*' or '?').
-//   4  Regex error, empty group, contains "()", "[]", or "{}".
-//   5  Regex error, a group starting with '(', '[', or '{' is
+//  Regex errors are returned in "end" when "start<0" for match,
+//  and in "starts[0]" / "ends[0]" when "n == -1" for matcha and fmatcha.
+//   0   Successful execution, no match found.
+//  -1   Regex error, no tokens.
+//  -2   Regex error, a group starting with '(', '[', or '{' is
 //        not terminated.
+//  -3   Regex error, bad syntax (i.e., starts with ')', ']', '}',
+//        '*', '?', or '|', empty second argument to '|', or bad token
+//        preceding '*' or '?').
+//  -4   Regex error, empty group, contains "()", "[]", or "{}".
+//  -6   No exact match found by label.
+//
+//  fmatcha returns "n == -2" for file errors and "n == -3" when the
+//  sampled ASCII ratio is below "min_ascii_ratio".
 // 
 //
 // COMPILATION
@@ -46,7 +60,7 @@
 //    cc -O3 -fPIC -shared -o regex.so regex.c
 // 
 //  Compile and run test (including debugging print statements) with:
-//    cc -o test_regex regex.c && ./test_regex
+//    cc -o test_regex test_regex.c && ./test_regex
 // 
 //
 // EXAMPLES:
@@ -855,6 +869,7 @@ void match(const char * regex, const char * string, int * start, int * end) {
 } 
 
 // Label all bytes in an exact regex match with canonical compiled token indices.
+// Return the label count, a regex error code, or LABEL_NO_MATCH_ERROR.
 int label(const char * regex, const char * string, int ** labels) {
   *labels = NULL;
   int string_len = 0;
@@ -1071,9 +1086,9 @@ void matcha(const char * regex, const char * string,
     inns[j] = 0; // token is not in next stack
   }
 
-  // Set the current index in the file.
-  int i = 0; // current index in file
-  int c = string[i]; // get current character in file
+  // Set the current index in the string.
+  int i = 0; // current index in string
+  int c = string[i]; // get current character in string
   int ics = 0; // index in current stack
   int ins = -1; // index in next stack
   int dest; // index of next token (for jump)
@@ -1215,7 +1230,7 @@ void matcha(const char * regex, const char * string,
 
 
 // Find all nonoverlapping matches of a regular expression in a file
-// at a given path. Return arrays of the starts and ends of matches.
+// at a given path. Return arrays of the starts, ends, and line numbers.
 void fmatcha(const char * regex, const char * path,
              int * n, int ** starts, int ** ends, int ** lines,
              float min_ascii_ratio) {
@@ -1422,7 +1437,7 @@ void fmatcha(const char * regex, const char * path,
     // If the just-parsed character was the end of the string, then break.
     if (c == EOF) {
       break;
-    // Get the next character in the string (assuming it's null terminated).
+    // Get the next character from the file buffer.
     } else {
       i++;
       ib++;
