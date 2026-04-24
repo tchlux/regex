@@ -760,6 +760,54 @@ int run_tests() {
     printf("ERROR: Bad ASCII ratio handling returned by fmatcha.\n");
     return(25);
   }
+
+  starts = (int*) 1;
+  ends = (int*) 1;
+  lines = (int*) 1;
+  fmatcha("a", "/tmp/regex_file_does_not_exist", &n_matches, &starts, &ends, &lines, 0.5);
+  if ((n_matches != -2) || (starts != NULL) || (ends != NULL) || (lines != NULL)) {
+    printf("ERROR: Bad file-open failure handling returned by fmatcha.\n");
+    return(26);
+  }
+
+  char * high_byte_path = "/tmp/regex_high_byte_test.bin";
+  FILE * high_byte_file = fopen(high_byte_path, "wb");
+  if (high_byte_file == NULL) {
+    printf("ERROR: Failed to create temporary high-byte test file.\n");
+    return(27);
+  }
+  fputc(0xE9, high_byte_file);
+  fclose(high_byte_file);
+  char high_byte_regex[] = {(char) 0xE9, '\0'};
+  fmatcha(high_byte_regex, high_byte_path, &n_matches, &starts, &ends, &lines, 0.0);
+  remove(high_byte_path);
+  if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 1)) {
+    printf("ERROR: Bad high-byte handling returned by fmatcha.\n");
+    return(28);
+  }
+  free(starts);
+
+  char * line_path = "/tmp/regex_line_test.txt";
+  FILE * line_file = fopen(line_path, "wb");
+  if (line_file == NULL) {
+    printf("ERROR: Failed to create temporary line test file.\n");
+    return(29);
+  }
+  fputs("a\nb", line_file);
+  fclose(line_file);
+  fmatcha("\n", line_path, &n_matches, &starts, &ends, &lines, 0.5);
+  if ((n_matches != 1) || (starts[0] != 1) || (ends[0] != 2) || (lines[0] != 1)) {
+    printf("ERROR: Bad newline line handling returned by fmatcha.\n");
+    return(30);
+  }
+  free(starts);
+  fmatcha("a\nb", line_path, &n_matches, &starts, &ends, &lines, 0.5);
+  remove(line_path);
+  if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 3) || (lines[0] != 2)) {
+    printf("ERROR: Bad multiline end-line handling returned by fmatcha.\n");
+    return(31);
+  }
+  free(starts);
   
   printf("\n All tests PASSED.\n");
   // Successful return.

@@ -105,6 +105,7 @@
 
 #include <stdio.h>  // printf, EOF
 #include <stdlib.h> // malloc, free
+#include <limits.h> // INT_MAX
 
 #define EXIT_TOKEN -1
 #define REGEX_NO_TOKENS_ERROR -1
@@ -1235,6 +1236,11 @@ void fmatcha(const char * regex, const char * path,
              int * n, int ** starts, int ** ends, int ** lines,
              float min_ascii_ratio) {
 
+  // Initialize output pointers so error paths return a known state.
+  (*starts) = NULL;
+  (*ends) = NULL;
+  (*lines) = NULL;
+
   // Open the file and handle any errors.
   FILE * file = fopen(path, "r");
   if (file == NULL) {
@@ -1265,7 +1271,7 @@ void fmatcha(const char * regex, const char * path,
   // Set there to be 0 matches, initially.
   (*n) = 0;
   // Initialize storage for tracking the current active tokens and
-  // where to jump based on the string being parsed.
+  // where to jump based on the file being parsed.
   const int mem_bytes = ((5*n_tokens+1)*sizeof(int) + (4*n_tokens+2)*sizeof(char));
   int * jumps = malloc(mem_bytes); // jump-to location after success
   int * jumpf = jumps + n_tokens; // jump-to location after failure
@@ -1282,11 +1288,31 @@ void fmatcha(const char * regex, const char * path,
 
   // Create a character buffer for reading data from the file.
   size_t buffer_size = FILE_BUFFER_SIZE;
-  fseek(file, 0, SEEK_END); // go to the end of the file
-  size_t file_size = ftell(file); // size of file in bytes
-  rewind(file); // go back to the beginning of the file
-  if (file_size < buffer_size)
-    buffer_size = file_size+1; // set the buffer size smaller if appropriate
+  // Get file size before reading so impossible int offsets can error early.
+  if (fseek(file, 0, SEEK_END)) {
+    (*n) = -2;
+    free(jumps);
+    fclose(file);
+    return;
+  }
+  long file_size = ftell(file); // size of file in bytes
+  // File offsets are returned as int, so reject larger files.
+  if ((file_size < 0) || (file_size > INT_MAX)) {
+    (*n) = -2;
+    free(jumps);
+    fclose(file);
+    return;
+  }
+  // Return to the start of the file now that the size is known.
+  if (fseek(file, 0, SEEK_SET)) {
+    (*n) = -2;
+    free(jumps);
+    fclose(file);
+    return;
+  }
+  size_t file_size_t = (size_t) file_size;
+  if (file_size_t < buffer_size)
+    buffer_size = file_size_t+1; // set the buffer size smaller if appropriate
   char * file_buff = malloc(sizeof(char)*buffer_size); // storage for the file contents
   size_t bytes_buffered = fread(file_buff, sizeof(char), buffer_size, file);
   size_t ib = 0; // index in buffer.
@@ -1318,9 +1344,6 @@ void fmatcha(const char * regex, const char * path,
   incs[0] = 1; // the first token is in the current stack
 
   // Initialize to "no match".
-  (*starts) = NULL;
-  (*ends) = NULL;
-  (*lines) = NULL;
   int n_found = 0; // number found
   int s_found = 0; // size of "found" arrays
   int lines_read = 1;
@@ -1399,7 +1422,8 @@ void fmatcha(const char * regex, const char * path,
       dest = jumpf[j];
       FMATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
       // Check to see if this token matches the current character.
-      } else if ((c == ct) || ((ct == '.') && (! jumpi[j]) && (c != EOF))) {
+      // Compare as unsigned so high-bit file bytes match high-bit tokens.
+      } else if ((c == (unsigned char) ct) || ((ct == '.') && (! jumpi[j]) && (c != EOF))) {
       dest = jumps[j];
       FMATCHA_STACK_NEXT_TOKEN(nstack, ins, inns);
       // This token did not match, trigger a jump fail.
@@ -1434,7 +1458,9 @@ void fmatcha(const char * regex, const char * path,
       incs[0] = 1;
     }
 
-    // If the just-parsed character was the end of the string, then break.
+    // Count new lines after processing so '\n' itself stays on its line.
+    if (c == '\n') lines_read++;
+    // If the just-parsed character was the end of the file, then break.
     if (c == EOF) {
       break;
     // Get the next character from the file buffer.
@@ -1448,8 +1474,6 @@ void fmatcha(const char * regex, const char * path,
         bytes_buffered = fread(file_buff, sizeof(char), buffer_size, file);
       }
       c = (ib < bytes_buffered) ? (unsigned char) file_buff[ib] : EOF;
-      // Increment the number of lines read.
-      if (c == '\n') lines_read++;
 
     }
   } while (ics >= 0) ; // loop until the active stack is empty
