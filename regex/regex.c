@@ -97,7 +97,6 @@
 #define REGEX_UNCLOSED_GROUP_ERROR -2
 #define REGEX_SYNTAX_ERROR -3
 #define REGEX_EMPTY_GROUP_ERROR -4
-#define STRING_EMPTY_ERROR -5
 #define LABEL_NO_MATCH_ERROR -6
 #define REGULAR_TOKEN 0
 #define SET_TOKEN_BODY 1
@@ -465,7 +464,6 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
         tokens[nt] = nx_token; // store this modifier at the front
         nt++; // increment the token counter.
         i++; // increment the regex index counter
-        tokens[nt+1] = token; // move the original token back one
       }
       // store the token, skip specials that were already stored earlier
       if ((cgs == '[') || ((token != '*') && (token != '?') && (token != '|'))) {
@@ -660,54 +658,6 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
   return;
 }
 
-
-/* // Core logic for MATCH'ing a regular expression. Compiler optimized into */
-/* //  multiple different functions depending on the MODE. */
-/* static inline */
-/* void _match(const char * regex, void * input_source, */
-/*             int * n, int ** starts, int ** ends, int ** lines, */
-/*             int mode) { */
-/*   #define MODE_SINGLE 0 // like `match` */
-/*   #define MODE_MULTI  1 // like `matcha` */
-/*   #define MODE_FILE   2 // like `fmatcha` */
-
-/*   #define NEXT_CHAR(ch,idx,src)                                           \ */
-/*     do {                                                                  \ */
-/*       if (mode != MODE_FILE) {                                            \ */
-/*         ch = src->s[idx];                                                 \ */
-/*       } else {                                                            \ */
-/*         /\* ---- buffered file read, BRAND-NEW implementation ---- *\/      \ */
-/*         if (++src->f.idx >= src->f.have) {                                \ */
-/*           src->f.have = fread(src->f.buf,1,src->f.buf_sz,src->f.fp);      \ */
-/*           if (src->f.have < src->f.buf_sz) src->f.buf[src->f.have] = EOF; \ */
-/*           src->f.idx = 0;                                                 \ */
-/*         }                                                                 \ */
-/*         ch = src->f.buf[src->f.idx];                                      \ */
-/*         if (ch == '\n') ++src->f.line_no;                                 \ */
-/*         /\* early exit on bad ASCII ratio – mirrors old logic *\/           \ */
-/*         if (idx >= MIN_SAMPLE_SIZE &&                                     \ */
-/*             (src->f.ascii_cnt / (float)idx) < src->f.min_ratio) {         \ */
-/*           *n = -3; goto CLEANUP;                                          \ */
-/*         }                                                                 \ */
-/*         if (ch < 128 && ch != EOF) ++src->f.ascii_cnt;                    \ */
-/*       }                                                                   \ */
-/*     } while (0) */
-/*   // prepare the InSrc instance (entirely new code, caller passes in ready data) */
-/*   InSrc *src = (InSrc*)input_source; */
-/*   #define STORE_SINGLE(s,e)           \ */
-/*     do { *n = (e > s); *starts = NULL; *ends = NULL; *lines = NULL;       \ */
-/*          (*start_ptr) = (s); (*end_ptr) = (e); goto CLEANUP; } while (0) */
-/*   #define STORE_MULTI(s,e) /\* reference: push into starts/ends grow-array *\/ */
-/*   #define STORE_FILE(s,e)  /\* reference: push into starts/ends/lines grow-array *\/ */
-/*   // choose the correct macro name once so inner loop has zero branches */
-/*   #if   MODE == MODE_SINGLE */
-/*     #define STORE_MATCH(s,e) STORE_SINGLE(s,e) */
-/*   #elif MODE == MODE_MULTI */
-/*     #define STORE_MATCH(s,e) STORE_MULTI(s,e) */
-/*   #else */
-/*     #define STORE_MATCH(s,e) STORE_FILE(s,e) */
-/*   #endif */
-/* } */
 
 // Do a simple regular experession match.
 void match(const char * regex, const char * string, int * start, int * end) {
@@ -1203,7 +1153,7 @@ void matcha(const char * regex, const char * string,
       } else {
       dest = jumpf[j];
       // jump immediately on fail if this is not the last token in a token set
-      if (jumpi[j] == 1) { 
+      if (jumpi[j] == SET_TOKEN_BODY) { 
         MATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
       // otherwise, put into the "next" stack
       } else { 
@@ -1441,7 +1391,7 @@ void fmatcha(const char * regex, const char * path,
       } else {
       dest = jumpf[j];
       // jump immediately on fail if this is not the last token in a token set
-      if (jumpi[j] == 1) { 
+      if (jumpi[j] == SET_TOKEN_BODY) { 
         FMATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
       // otherwise, put into the "next" stack
       } else { 
