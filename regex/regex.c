@@ -30,12 +30,25 @@
 //
 //   int label(regex, string, labels)
 //     Label each byte in an exact match with its compiled token index.
+//     Caller must free the returned "labels" pointer.
 //
 //   void matcha(regex, string, n, starts, ends)
 //     Find all nonoverlapping matches in a null-terminated string.
+//     Caller must free "starts"; do not free "ends".
 //
 //   void fmatcha(regex, path, n, starts, ends, lines, min_ascii_ratio)
 //     Find all nonoverlapping matches in a file at a given path.
+//     Caller must free "starts"; do not free "ends" or "lines".
+// 
+//
+// BEHAVIOR
+//  C functions match from the current/start position. Prepend ".*"
+//  to search past leading text. Python wrappers prepend ".*" unless
+//  "^" is used. Matches are first-discovered, not greedy longest.
+//  The "|" operator applies to the neighboring token (group) unless
+//  explicit groups are used. NUL terminates string APIs. Nullable
+//  matcha patterns may return zero-length and overlapping-looking
+//  spans. fmatcha line numbers report where the match completes.
 // 
 // 
 // ERROR CODES
@@ -49,8 +62,8 @@
 //        '*', '?', or '|', empty second argument to '|', or bad token
 //        preceding '*' or '?').
 //  -4   Regex error, empty group, contains "()", "[]", or "{}".
-//  -6   No exact match found by label.
-//  -7   Failed memory allocation.
+//  -5   No exact match found by label.
+//  -6   Failed memory allocation.
 //
 //  fmatcha returns "n == -2" for file errors and "n == -3" when the
 //  sampled ASCII ratio is below "min_ascii_ratio".
@@ -113,8 +126,8 @@
 #define REGEX_UNCLOSED_GROUP_ERROR -2
 #define REGEX_SYNTAX_ERROR -3
 #define REGEX_EMPTY_GROUP_ERROR -4
-#define LABEL_NO_MATCH_ERROR -6
-#define REGEX_MEMORY_ERROR -7
+#define LABEL_NO_MATCH_ERROR -5
+#define REGEX_MEMORY_ERROR -6
 #define REGULAR_TOKEN 0
 #define SET_TOKEN_BODY 1
 #define SET_TOKEN_LAST 2

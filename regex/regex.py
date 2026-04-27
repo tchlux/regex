@@ -172,8 +172,8 @@ except:
 # Exception to raise when errors are reported by the regex library.
 class RegexError(Exception): pass
 
-LABEL_NO_MATCH_ERROR = -6
-REGEX_MEMORY_ERROR = -7
+LABEL_NO_MATCH_ERROR = -5
+REGEX_MEMORY_ERROR = -6
 SET_TOKEN_BODY = 1
 SET_TOKEN_LAST = 2
 

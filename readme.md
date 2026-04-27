@@ -71,6 +71,10 @@ python3 regex.py "<search-pattern>" "<path-pattern-1>" ["<path-pattern-2>"] [...
 ## LANGUAGE SPECIFICATION FROM [`regex.c`](regex/regex.c)
 
 ```C
+// ___________________________________________________________________
+//                            regex.c
+// 
+// DESCRIPTION
 //  This file provides code for very fast regular expression matching
 //  over character arrays for regular expressions. Only accepts
 //  regular expressions of a reduced form, with syntax:
@@ -86,7 +90,7 @@ python3 regex.py "<search-pattern>" "<path-pattern-1>" ["<path-pattern-2>"] [...
 //         capture any (special) characters except ']'
 //     {}  logical NOT, reverse behavior of successful and failed matches
 //
-//  The regular expression matcher is accessible through the function:
+//  The regular expression matcher is accessible through the functions:
 // 
 //   void match(regex, string, start, end)
 //     (const char *) regex -- A null-terminated simple regular expression.
@@ -94,20 +98,48 @@ python3 regex.py "<search-pattern>" "<path-pattern-1>" ["<path-pattern-2>"] [...
 //     (int *) start -- The (pass by reference) start of the first match.
 //                      If there is no match this value is -1.
 //     (int *) end -- The (pass by reference) end (noninclusive) of the
-//                    first match. If *start is -1, contains error code.
+//                    first match. If *start is negative, contains an
+//                    error code (0 for no match).
+//
+//   int label(regex, string, labels)
+//     Label each byte in an exact match with its compiled token index.
+//     Caller must free the returned "labels" pointer.
+//
+//   void matcha(regex, string, n, starts, ends)
+//     Find all nonoverlapping matches in a null-terminated string.
+//     Caller must free "starts"; do not free "ends".
+//
+//   void fmatcha(regex, path, n, starts, ends, lines, min_ascii_ratio)
+//     Find all nonoverlapping matches in a file at a given path.
+//     Caller must free "starts"; do not free "ends" or "lines".
+// 
+//
+// BEHAVIOR
+//  C functions match from the current/start position. Prepend ".*"
+//  to search past leading text. Python wrappers prepend ".*" unless
+//  "^" is used. Matches are first-discovered, not greedy longest.
+//  The "|" operator applies to the neighboring token (group) unless
+//  explicit groups are used. NUL terminates string APIs. Nullable
+//  matcha patterns may return zero-length and overlapping-looking
+//  spans. fmatcha line numbers report where the match completes.
 // 
 // 
 // ERROR CODES
-//  These codes are returned in "end" when "start<0".
-//   0  Successful execution, no match found.
-//   1  Regex error, no tokens.
-//   2  Regex error, unterminated token set of character literals.
-//   3  Regex error, bad syntax (i.e., starts with ')', '*', '?',
-//        or '|', empty second argument to '|', or bad token
-//        preceding '*' or '?').
-//   4  Regex error, empty group, contains "()", "[]", or "{}".
-//   5  Regex error, a group starting with '(', '[', or '{' is
+//  Regex errors are returned in "end" when "start<0" for match,
+//  and in "starts[0]" / "ends[0]" when "n == -1" for matcha and fmatcha.
+//   0   Successful execution, no match found.
+//  -1   Regex error, no tokens.
+//  -2   Regex error, a group starting with '(', '[', or '{' is
 //        not terminated.
+//  -3   Regex error, bad syntax (i.e., starts with ')', ']', '}',
+//        '*', '?', or '|', empty second argument to '|', or bad token
+//        preceding '*' or '?').
+//  -4   Regex error, empty group, contains "()", "[]", or "{}".
+//  -5   No exact match found by label.
+//  -6   Failed memory allocation.
+//
+//  fmatcha returns "n == -2" for file errors and "n == -3" when the
+//  sampled ASCII ratio is below "min_ascii_ratio".
 // 
 //
 // COMPILATION
@@ -115,7 +147,7 @@ python3 regex.py "<search-pattern>" "<path-pattern-1>" ["<path-pattern-2>"] [...
 //    cc -O3 -fPIC -shared -o regex.so regex.c
 // 
 //  Compile and run test (including debugging print statements) with:
-//    cc -o test_regex regex.c && ./test_regex
+//    cc -o test_regex test_regex.c && ./test_regex
 // 
 //
 // EXAMPLES:
@@ -155,5 +187,6 @@ python3 regex.py "<search-pattern>" "<path-pattern-1>" ["<path-pattern-2>"] [...
 //            followed by a copy with '*'
 //    {n,m} replace with n occurrences of the preceding group, then
 //            m-n repetitions of the group all with '?'
+// 
+// ___________________________________________________________________
 ```
-
