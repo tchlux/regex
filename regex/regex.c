@@ -50,6 +50,7 @@
 //        preceding '*' or '?').
 //  -4   Regex error, empty group, contains "()", "[]", or "{}".
 //  -6   No exact match found by label.
+//  -7   Failed memory allocation.
 //
 //  fmatcha returns "n == -2" for file errors and "n == -3" when the
 //  sampled ASCII ratio is below "min_ascii_ratio".
@@ -113,6 +114,7 @@
 #define REGEX_SYNTAX_ERROR -3
 #define REGEX_EMPTY_GROUP_ERROR -4
 #define LABEL_NO_MATCH_ERROR -6
+#define REGEX_MEMORY_ERROR -7
 #define REGULAR_TOKEN 0
 #define SET_TOKEN_BODY 1
 #define SET_TOKEN_LAST 2
@@ -165,8 +167,16 @@ void _count(const char * regex, int * tokens, int * groups) {
       // Increment the count of the number of groups.
       (*groups)++;
       if (gi+1 >= gs_size) {
-        gs_size = (gs_size == 0) ? 4 : 2*gs_size;
-        gs = realloc(gs, gs_size * sizeof(char));
+        int new_gs_size = (gs_size == 0) ? 4 : 2*gs_size;
+        char * new_gs = realloc(gs, new_gs_size * sizeof(char));
+        if (new_gs == NULL) {
+          (*tokens) = -i-1;
+          (*groups) = REGEX_MEMORY_ERROR;
+          free(gs);
+          return;
+        }
+        gs_size = new_gs_size;
+        gs = new_gs;
       }
       gs[++gi] = token;
       int tokens_in_group = 0;
@@ -204,8 +214,16 @@ void _count(const char * regex, int * tokens, int * groups) {
     } else if ((token == '(') || (token == '{')) {
       (*groups)++;
       if (gi+1 >= gs_size) {
-        gs_size = (gs_size == 0) ? 4 : 2*gs_size;
-        gs = realloc(gs, gs_size * sizeof(char));
+        int new_gs_size = (gs_size == 0) ? 4 : 2*gs_size;
+        char * new_gs = realloc(gs, new_gs_size * sizeof(char));
+        if (new_gs == NULL) {
+          (*tokens) = -i-1;
+          (*groups) = REGEX_MEMORY_ERROR;
+          free(gs);
+          return;
+        }
+        gs_size = new_gs_size;
+        gs = new_gs;
       }
       gs[++gi] = token;
     // Check for invalid regular expressions
@@ -287,6 +305,10 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
 
   // Initialize storage for the first and first proceding token of groups.
   int * group_starts = malloc((4*n_groups+n_tokens+2)*sizeof(int) + 2*n_groups*sizeof(char));
+  if (group_starts == NULL) {
+    jumps[0] = REGEX_MEMORY_ERROR;
+    return;
+  }
   int * group_nexts = group_starts + n_groups;
   int * gi_stack = group_nexts + n_groups; // active group stack
   int * gc_stack = gi_stack + n_groups; // closed group stack
@@ -696,6 +718,11 @@ void match(const char * regex, const char * string, int * start, int * end) {
   // where to jump based on the string being parsed.
   const int mem_bytes = ((5*n_tokens+1)*sizeof(int) + (4*n_tokens+2)*sizeof(char));
   int * jumps = malloc(mem_bytes); // jump-to location after success
+  if (jumps == NULL) {
+    (*start) = EXIT_TOKEN;
+    (*end) = REGEX_MEMORY_ERROR;
+    return;
+  }
   int * jumpf = jumps + n_tokens; // jump-to location after failure
   int * active = jumpf + n_tokens; // presently active tokens in regex
   int * cstack = active + n_tokens+1; // current stack of active tokens
@@ -711,6 +738,12 @@ void match(const char * regex, const char * string, int * start, int * end) {
   // Determine the jump-to tokens upon successful match and failed
   // match at each token in the regular expression.
   _set_jump(regex, n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+  if (jumps[0] == REGEX_MEMORY_ERROR) {
+    (*start) = EXIT_TOKEN;
+    (*end) = REGEX_MEMORY_ERROR;
+    free(jumps);
+    return;
+  }
   // Set all tokens to be inactive, convert ? to * for simplicity.
   active[n_tokens] = EXIT_TOKEN;
   for (int j = 0; j < n_tokens; j++) {
@@ -878,6 +911,7 @@ int label(const char * regex, const char * string, int ** labels) {
 
   int n_tokens, n_groups;
   _count(regex, &n_tokens, &n_groups);
+  if (n_groups == REGEX_MEMORY_ERROR) return REGEX_MEMORY_ERROR;
   if (n_tokens <= 0) {
     if (n_tokens == 0) return REGEX_NO_TOKENS_ERROR;
     return n_groups;
@@ -885,6 +919,7 @@ int label(const char * regex, const char * string, int ** labels) {
 
   const int mem_bytes = ((7*n_tokens+1)*sizeof(int) + (4*n_tokens+2)*sizeof(char));
   int * jumps = malloc(mem_bytes);
+  if (jumps == NULL) return REGEX_MEMORY_ERROR;
   int * jumpf = jumps + n_tokens;
   int * active = jumpf + n_tokens;
   int * cstack = active + n_tokens+1;
@@ -899,6 +934,10 @@ int label(const char * regex, const char * string, int ** labels) {
   jumpi[n_tokens] = '\0';
 
   _set_jump(regex, n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+  if (jumps[0] == REGEX_MEMORY_ERROR) {
+    free(jumps);
+    return REGEX_MEMORY_ERROR;
+  }
   active[n_tokens] = EXIT_TOKEN;
   for (int j = 0; j < n_tokens; j++) {
     if ((! jumpi[j]) && ((tokens[j] == '?') || (tokens[j] == '|')))
@@ -922,6 +961,10 @@ int label(const char * regex, const char * string, int ** labels) {
   int traces_used = 1;
   int traces_size = 8;
   trace_node * traces = malloc(sizeof(trace_node) * traces_size);
+  if (traces == NULL) {
+    free(jumps);
+    return REGEX_MEMORY_ERROR;
+  }
   traces[0].parent = EXIT_TOKEN;
   traces[0].byte = EXIT_TOKEN;
   traces[0].token = EXIT_TOKEN;
@@ -929,7 +972,13 @@ int label(const char * regex, const char * string, int ** labels) {
   #define ADD_TRACE(parent_id, byte_index, token_index)                            \
     if (traces_used >= traces_size) {                                              \
       traces_size = 2 * traces_size;                                               \
-      traces = realloc(traces, sizeof(trace_node) * traces_size);                  \
+      trace_node * new_traces = realloc(traces, sizeof(trace_node) * traces_size); \
+      if (new_traces == NULL) {                                                    \
+        free(traces);                                                              \
+        free(jumps);                                                               \
+        return REGEX_MEMORY_ERROR;                                                 \
+      }                                                                            \
+      traces = new_traces;                                                         \
     }                                                                              \
     traces[traces_used].parent = parent_id;                                        \
     traces[traces_used].byte = byte_index;                                         \
@@ -946,6 +995,11 @@ int label(const char * regex, const char * string, int ** labels) {
         if (end == string_len) {                                                     \
           if (string_len > 0) {                                                      \
             (*labels) = malloc(sizeof(int) * string_len);                            \
+            if ((*labels) == NULL) {                                                 \
+              free(traces);                                                          \
+              free(jumps);                                                           \
+              return REGEX_MEMORY_ERROR;                                             \
+            }                                                                        \
             for (int index = 0; index < string_len; index++) (*labels)[index] = EXIT_TOKEN; \
             for (int trace = new_trace; trace > 0; trace = traces[trace].parent) {   \
               if (traces[trace].byte >= 0) (*labels)[traces[trace].byte] = traces[trace].token; \
@@ -1038,9 +1092,20 @@ void matcha(const char * regex, const char * string,
   (*n) = -1;
   int n_tokens, n_groups;
   _count(regex, &n_tokens, &n_groups);
+  if (n_groups == REGEX_MEMORY_ERROR) {
+    (*n) = REGEX_MEMORY_ERROR;
+    (*starts) = NULL;
+    (*ends) = NULL;
+    return;
+  }
   // Error mode, fewer than one token (no possible match).
   if (n_tokens <= 0) {
     (*starts) = malloc(2 * sizeof(int));
+    if ((*starts) == NULL) {
+      (*n) = REGEX_MEMORY_ERROR;
+      (*ends) = NULL;
+      return;
+    }
     (*ends) = (*starts) + 1;
     // Set the error flag and return.
     if (n_tokens == 0) {
@@ -1060,6 +1125,12 @@ void matcha(const char * regex, const char * string,
   // where to jump based on the string being parsed.
   const int mem_bytes = ((5*n_tokens+1)*sizeof(int) + (4*n_tokens+2)*sizeof(char));
   int * jumps = malloc(mem_bytes); // jump-to location after success
+  if (jumps == NULL) {
+    (*n) = REGEX_MEMORY_ERROR;
+    (*starts) = NULL;
+    (*ends) = NULL;
+    return;
+  }
   int * jumpf = jumps + n_tokens; // jump-to location after failure
   int * active = jumpf + n_tokens; // presently active tokens in regex
   int * cstack = active + n_tokens + 1; // current stack of active tokens
@@ -1075,6 +1146,13 @@ void matcha(const char * regex, const char * string,
   // Determine the jump-to tokens upon successful match and failed
   // match at each token in the regular expression.
   _set_jump(regex, n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+  if (jumps[0] == REGEX_MEMORY_ERROR) {
+    (*n) = REGEX_MEMORY_ERROR;
+    (*starts) = NULL;
+    (*ends) = NULL;
+    free(jumps);
+    return;
+  }
   // Set all tokens to be inactive, convert ? to * for simplicity.
   active[n_tokens] = EXIT_TOKEN;
   for (int j = 0; j < n_tokens; j++) {
@@ -1115,7 +1193,15 @@ void matcha(const char * regex, const char * string,
           if (n_found >= s_found) { \
             if (s_found == 0) s_found = INITIAL_FOUND_SIZE; \
             else s_found = 2*s_found; \
-            int * new_starts = malloc(3 * s_found * sizeof(int)); \
+            int * new_starts = malloc(2 * s_found * sizeof(int)); \
+            if (new_starts == NULL) { \
+              (*n) = REGEX_MEMORY_ERROR; \
+              if ((*starts) != NULL) free(*starts); \
+              (*starts) = NULL; \
+              (*ends) = NULL; \
+              free(jumps); \
+              return; \
+            } \
             int * new_ends = new_starts + s_found; \
             for (int index = 0; index < n_found; index++)      { \
               new_starts[index] = (*starts)[index]; \
@@ -1210,11 +1296,20 @@ void matcha(const char * regex, const char * string,
   // Check for errors, deallocate 'ends', 'starts', and 'lines' if there are errors.
   if ((*n) < 0) {
     if ((*starts) != NULL) free(*starts);
+    (*starts) = NULL;
+    (*ends) = NULL;
   // Re-allocate the output arrays to be the exact size of the number of matches.
   } else {
     if (n_found < s_found) {
       s_found = n_found;
-      int * new_starts = malloc(3 * s_found * sizeof(int));
+      int * new_starts = malloc(2 * s_found * sizeof(int));
+      if (new_starts == NULL) {
+        (*n) = REGEX_MEMORY_ERROR;
+        if ((*starts) != NULL) free(*starts);
+        (*starts) = NULL;
+        (*ends) = NULL;
+        return;
+      }
       int * new_ends = new_starts + s_found;
       for (int index = 0; index < n_found; index++) {
         new_starts[index] = (*starts)[index];
@@ -1252,9 +1347,19 @@ void fmatcha(const char * regex, const char * path,
   (*n) = -1;
   int n_tokens, n_groups;
   _count(regex, &n_tokens, &n_groups);
+  if (n_groups == REGEX_MEMORY_ERROR) {
+    (*n) = REGEX_MEMORY_ERROR;
+    fclose(file);
+    return;
+  }
   // Error mode, fewer than one token (no possible match).
   if (n_tokens <= 0) {
     (*starts) = malloc(2 * sizeof(int));
+    if ((*starts) == NULL) {
+      (*n) = REGEX_MEMORY_ERROR;
+      fclose(file);
+      return;
+    }
     (*ends) = (*starts) + 1;
     // Set the error flag and return.
     if (n_tokens == 0) {
@@ -1274,6 +1379,11 @@ void fmatcha(const char * regex, const char * path,
   // where to jump based on the file being parsed.
   const int mem_bytes = ((5*n_tokens+1)*sizeof(int) + (4*n_tokens+2)*sizeof(char));
   int * jumps = malloc(mem_bytes); // jump-to location after success
+  if (jumps == NULL) {
+    (*n) = REGEX_MEMORY_ERROR;
+    fclose(file);
+    return;
+  }
   int * jumpf = jumps + n_tokens; // jump-to location after failure
   int * active = jumpf + n_tokens; // presently active tokens in regex
   int * cstack = active + n_tokens + 1; // current stack of active tokens
@@ -1314,12 +1424,25 @@ void fmatcha(const char * regex, const char * path,
   if (file_size_t < buffer_size)
     buffer_size = file_size_t+1; // set the buffer size smaller if appropriate
   char * file_buff = malloc(sizeof(char)*buffer_size); // storage for the file contents
+  if (file_buff == NULL) {
+    (*n) = REGEX_MEMORY_ERROR;
+    free(jumps);
+    fclose(file);
+    return;
+  }
   size_t bytes_buffered = fread(file_buff, sizeof(char), buffer_size, file);
   size_t ib = 0; // index in buffer.
 
   // Determine the jump-to tokens upon successful match and failed
   // match at each token in the regular expression.
   _set_jump(regex, n_tokens, n_groups, tokens, jumps, jumpf, jumpi);
+  if (jumps[0] == REGEX_MEMORY_ERROR) {
+    (*n) = REGEX_MEMORY_ERROR;
+    free(file_buff);
+    free(jumps);
+    fclose(file);
+    return;
+  }
   // Set all tokens to be inactive, convert ? to * for simplicity.
   active[n_tokens] = EXIT_TOKEN;
   for (int j = 0; j < n_tokens; j++) {
@@ -1363,6 +1486,17 @@ void fmatcha(const char * regex, const char * path,
             if (s_found == 0) s_found = INITIAL_FOUND_SIZE; \
             else s_found = 2*s_found; \
             int * new_starts = malloc(3 * s_found * sizeof(int)); \
+            if (new_starts == NULL) { \
+              (*n) = REGEX_MEMORY_ERROR; \
+              if ((*starts) != NULL) free(*starts); \
+              (*starts) = NULL; \
+              (*ends) = NULL; \
+              (*lines) = NULL; \
+              free(file_buff); \
+              free(jumps); \
+              fclose(file); \
+              return; \
+            } \
             int * new_ends = new_starts + s_found; \
             int * new_lines = new_ends + s_found;  \
             for (int index = 0; index < n_found; index++)      { \
@@ -1484,11 +1618,22 @@ void fmatcha(const char * regex, const char * path,
   // Check for errors, deallocate 'ends', 'starts', and 'lines' if there are errors.
   if ((*n) < 0) {
     if ((*starts) != NULL) free(*starts);
+    (*starts) = NULL;
+    (*ends) = NULL;
+    (*lines) = NULL;
   } else {
     // Re-allocate the output arrays to be the exact size of the number of matches.
     if (n_found < s_found) {
       s_found = n_found;
       int * new_starts = malloc(3 * s_found * sizeof(int));
+      if (new_starts == NULL) {
+        (*n) = REGEX_MEMORY_ERROR;
+        if ((*starts) != NULL) free(*starts);
+        (*starts) = NULL;
+        (*ends) = NULL;
+        (*lines) = NULL;
+        return;
+      }
       int * new_ends = new_starts + s_found;
       int * new_lines = new_ends + s_found;
       for (int index = 0; index < n_found; index++) {
@@ -1504,19 +1649,3 @@ void fmatcha(const char * regex, const char * path,
   }
   return;
 }
-
-
-// If DEBUG is not define, make the main of this program be a command line interface.
-#ifndef DEBUG
-int main(int argc, char * argv[]) {
-  printf("\n");
-  printf("The main program has not been implemented yet.\n");
-  printf("It should behave somewhat like `grep` once done.\n");
-  printf("\n");
-  printf("argc = %d\n", argc);
-  for (int i = 0; i < argc; i++) {
-    printf("argv[%d] = \"%s\"\n", i, argv[i]);
-  }
-  printf("\n");
-}
-#endif

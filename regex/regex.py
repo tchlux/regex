@@ -173,6 +173,7 @@ except:
 class RegexError(Exception): pass
 
 LABEL_NO_MATCH_ERROR = -6
+REGEX_MEMORY_ERROR = -7
 SET_TOKEN_BODY = 1
 SET_TOKEN_LAST = 2
 
@@ -254,6 +255,7 @@ def translate_return_values(regex, start, end):
         if (end == 0): return None # no match found
         elif (end == -1): return (0, 0) # empty regular expression
         elif ((start == -1) and (end == -5)): return None  # empty string
+        elif (end == REGEX_MEMORY_ERROR): raise(MemoryError("Failed memory allocation."))
         elif (end < -1): # error code provided by C
             err = f"Invalid regular expression (code {-end})"
             if (start < -1):
@@ -338,6 +340,7 @@ def label(regex, string, **translate_kwargs):
     # Ask the C helper to label the exact window and translate the no-match sentinel.
     n = clib.label(ctypes.c_char_p(regex), ctypes.c_char_p(string), ctypes.byref(labels))
     if (n == LABEL_NO_MATCH_ERROR): return None
+    if (n == REGEX_MEMORY_ERROR): raise(MemoryError("Failed memory allocation."))
     if (n == 0): return []
     values = list((ctypes.c_int*n).from_address(labels.value))
     libc.free(labels.value)
@@ -466,6 +469,7 @@ def matcha(regex, string, **translate_kwargs):
     # Return the values from the C library (translating them appropriately)
     if (n == 0): return [], []
     elif (n < 0):
+        if (n == REGEX_MEMORY_ERROR): raise(MemoryError("Failed memory allocation."))
         if (n == -2): raise(TypeError("`matcha` must be provided with a nonempty string."))
         elif (n == -1):
             starts = (ctypes.c_int*1).from_address(starts.value)
@@ -512,6 +516,7 @@ def fmatcha(path, regex, ascii_ratio=0.7, **translate_kwargs):
     if (n == 0):
         return path, 0, f"  no matches in '{path}'"
     elif (n < 0):
+        if (n == REGEX_MEMORY_ERROR): raise(MemoryError("Failed memory allocation."))
         if (n == -3):
             return path, 0, f"  binary file skipped at '{path}'"
         if (n == -2):
