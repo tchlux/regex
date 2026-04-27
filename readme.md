@@ -101,9 +101,9 @@ python3 regex.py "<search-pattern>" "<path-pattern-1>" ["<path-pattern-2>"] [...
 //                    first match. If *start is negative, contains an
 //                    error code (0 for no match).
 //
-//   int label(regex, string, labels)
-//     Label each byte in an exact match with its compiled token index.
-//     Caller must free the returned "labels" pointer.
+//   int label(regex, string, labels, groups, group_spans)
+//     Label each byte in an exact match with its compiled token and group index.
+//     Caller must free returned "labels", "groups", and "group_spans" pointers.
 //
 //   void matcha(regex, string, n, starts, ends)
 //     Find all nonoverlapping matches in a null-terminated string.

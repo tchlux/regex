@@ -28,9 +28,9 @@
 //                    first match. If *start is negative, contains an
 //                    error code (0 for no match).
 //
-//   int label(regex, string, labels)
-//     Label each byte in an exact match with its compiled token index.
-//     Caller must free the returned "labels" pointer.
+//   int label(regex, string, labels, groups, group_spans)
+//     Label each byte in an exact match with its compiled token and group index.
+//     Caller must free returned "labels", "groups", and "group_spans" pointers.
 //
 //   void matcha(regex, string, n, starts, ends)
 //     Find all nonoverlapping matches in a null-terminated string.
@@ -915,10 +915,13 @@ void match(const char * regex, const char * string, int * start, int * end) {
   return;
 } 
 
-// Label all bytes in an exact regex match with canonical compiled token indices.
+// Label all bytes in an exact regex match with canonical token and group indices.
 // Return the label count, a regex error code, or LABEL_NO_MATCH_ERROR.
-int label(const char * regex, const char * string, int ** labels) {
+int label(const char * regex, const char * string, int ** labels,
+          int ** groups, int ** group_spans) {
   *labels = NULL;
+  *groups = NULL;
+  *group_spans = NULL;
   int string_len = 0;
   while (string[string_len] != '\0') string_len++;
 
@@ -951,6 +954,98 @@ int label(const char * regex, const char * string, int ** labels) {
     free(jumps);
     return REGEX_MEMORY_ERROR;
   }
+
+  int * token_groups = malloc(sizeof(int) * n_tokens);
+  int * gi_stack = n_groups ? malloc(sizeof(int) * n_groups) : NULL;
+  char * s_stack = n_groups ? malloc(sizeof(char) * 2 * n_groups) : NULL;
+  char * g_mods = n_groups ? s_stack + n_groups : NULL;
+  if (n_groups > 0) *group_spans = malloc(sizeof(int) * 2 * n_groups);
+  if ((token_groups == NULL) || ((n_groups > 0) &&
+      ((gi_stack == NULL) || (s_stack == NULL) || (*group_spans == NULL)))) {
+    free(token_groups);
+    free(gi_stack);
+    free(s_stack);
+    free(*group_spans);
+    *group_spans = NULL;
+    free(jumps);
+    return REGEX_MEMORY_ERROR;
+  }
+  for (int j = 0; j < n_tokens; j++) token_groups[j] = EXIT_TOKEN;
+  for (int j = 0; j < n_groups; j++) g_mods[j] = DEFAULT_GROUP_MOD;
+
+  int gi = -1;
+  int iga = -1;
+  int ng = 0;
+  int i = 0;
+  char cgs = '\0';
+  char token = regex[i];
+  while (token != '\0') {
+    if (((token == '(') || (token == '[') || (token == '{')) && (cgs != '[')) {
+      gi = ng++;
+      cgs = token;
+      gi_stack[++iga] = gi;
+      s_stack[iga] = token;
+      (*group_spans)[2*gi] = gi;
+      (*group_spans)[2*gi+1] = gi;
+    } else if ((iga >= 0) &&
+              (((cgs == '(') && (token == ')')) ||
+               ((cgs == '[') && (token == ']')) ||
+               ((cgs == '{') && (token == '}')))) {
+      token = regex[i+1];
+      if ((token == '*') || (token == '?') || (token == '|')) g_mods[gi] = token;
+      (*group_spans)[2*gi+1] = ng-1;
+      iga--;
+      if (iga >= 0) {
+        gi = gi_stack[iga];
+        cgs = s_stack[iga];
+      } else {
+        gi = -1;
+        cgs = '\0';
+      }
+    }
+    i++;
+    token = regex[i];
+  }
+
+  gi = -1;
+  iga = -1;
+  ng = 0;
+  i = 0;
+  int nt = 0;
+  cgs = '\0';
+  token = regex[i];
+  while ((token != '\0') && (nt < n_tokens)) {
+    if (((token == '(') || (token == '[') || (token == '{')) && (cgs != '[')) {
+      gi = ng++;
+      cgs = token;
+      gi_stack[++iga] = gi;
+      s_stack[iga] = token;
+      if (g_mods[gi] != DEFAULT_GROUP_MOD) token_groups[nt++] = gi;
+    } else if ((iga >= 0) &&
+              (((cgs == '(') && (token == ')')) ||
+               ((cgs == '[') && (token == ']')) ||
+               ((cgs == '{') && (token == '}')))) {
+      iga--;
+      if (iga >= 0) {
+        gi = gi_stack[iga];
+        cgs = s_stack[iga];
+      } else {
+        gi = -1;
+        cgs = '\0';
+      }
+    } else {
+      const char nx_token = regex[i+1];
+      if ((cgs != '[') && ((nx_token == '*') || (nx_token == '?') || (nx_token == '|'))) {
+        token_groups[nt++] = gi;
+        i++;
+      }
+      if ((cgs == '[') || ((token != '*') && (token != '?') && (token != '|')))
+        token_groups[nt++] = gi;
+    }
+    i++;
+    token = regex[i];
+  }
+
   active[n_tokens] = EXIT_TOKEN;
   for (int j = 0; j < n_tokens; j++) {
     if ((! jumpi[j]) && ((tokens[j] == '?') || (tokens[j] == '|')))
@@ -960,7 +1055,7 @@ int label(const char * regex, const char * string, int ** labels) {
     inns[j] = 0;
   }
 
-  int i = 0;
+  i = 0;
   char c = string[i];
   int ics = 0;
   int ins = -1;
@@ -975,6 +1070,11 @@ int label(const char * regex, const char * string, int ** labels) {
   int traces_size = 8;
   trace_node * traces = malloc(sizeof(trace_node) * traces_size);
   if (traces == NULL) {
+    free(token_groups);
+    free(gi_stack);
+    free(s_stack);
+    free(*group_spans);
+    *group_spans = NULL;
     free(jumps);
     return REGEX_MEMORY_ERROR;
   }
@@ -988,6 +1088,11 @@ int label(const char * regex, const char * string, int ** labels) {
       trace_node * new_traces = realloc(traces, sizeof(trace_node) * traces_size); \
       if (new_traces == NULL) {                                                    \
         free(traces);                                                              \
+        free(token_groups);                                                        \
+        free(gi_stack);                                                            \
+        free(s_stack);                                                             \
+        free(*group_spans);                                                        \
+        *group_spans = NULL;                                                       \
         free(jumps);                                                               \
         return REGEX_MEMORY_ERROR;                                                 \
       }                                                                            \
@@ -1008,29 +1113,53 @@ int label(const char * regex, const char * string, int ** labels) {
         if (end == string_len) {                                                     \
           if (string_len > 0) {                                                      \
             (*labels) = malloc(sizeof(int) * string_len);                            \
-            if ((*labels) == NULL) {                                                 \
+            (*groups) = malloc(sizeof(int) * string_len);                            \
+            if (((*labels) == NULL) || ((*groups) == NULL)) {                        \
+              free(*labels);                                                         \
+              free(*groups);                                                         \
+              (*labels) = NULL;                                                      \
+              (*groups) = NULL;                                                      \
               free(traces);                                                          \
+              free(token_groups);                                                    \
+              free(gi_stack);                                                        \
+              free(s_stack);                                                         \
+              free(*group_spans);                                                    \
+              *group_spans = NULL;                                                   \
               free(jumps);                                                           \
               return REGEX_MEMORY_ERROR;                                             \
             }                                                                        \
             for (int index = 0; index < string_len; index++) (*labels)[index] = EXIT_TOKEN; \
+            for (int index = 0; index < string_len; index++) (*groups)[index] = EXIT_TOKEN; \
             for (int trace = new_trace; trace > 0; trace = traces[trace].parent) {   \
-              if (traces[trace].byte >= 0) (*labels)[traces[trace].byte] = traces[trace].token; \
+              if (traces[trace].byte >= 0) {                                         \
+                (*labels)[traces[trace].byte] = traces[trace].token;                 \
+                (*groups)[traces[trace].byte] = token_groups[traces[trace].token];   \
+              }                                                                      \
             }                                                                        \
             for (int index = 0; index < string_len; index++) {                       \
               if ((*labels)[index] == EXIT_TOKEN) {                                  \
                 free(*labels);                                                       \
+                free(*groups);                                                       \
                 (*labels) = NULL;                                                    \
+                (*groups) = NULL;                                                    \
                 break;                                                               \
               }                                                                      \
             }                                                                        \
             if ((*labels) != NULL) {                                                 \
               free(traces);                                                          \
+              free(token_groups);                                                    \
+              free(gi_stack);                                                        \
+              free(s_stack);                                                         \
               free(jumps);                                                           \
               return string_len;                                                     \
             }                                                                        \
           } else {                                                                   \
             free(traces);                                                            \
+            free(token_groups);                                                      \
+            free(gi_stack);                                                          \
+            free(s_stack);                                                           \
+            free(*group_spans);                                                      \
+            *group_spans = NULL;                                                     \
             free(jumps);                                                             \
             return 0;                                                                \
           }                                                                          \
@@ -1093,6 +1222,11 @@ int label(const char * regex, const char * string, int ** labels) {
   } while (ics >= 0);
 
   free(traces);
+  free(token_groups);
+  free(gi_stack);
+  free(s_stack);
+  free(*group_spans);
+  *group_spans = NULL;
   free(jumps);
   return LABEL_NO_MATCH_ERROR;
 }

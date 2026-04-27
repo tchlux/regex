@@ -11,24 +11,24 @@
 ''' 
 
 #  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-# 
+#
 #                         Python development
-# 
-# 
+#
+#
 #   write `fmatch` function to go with the existing
 #   `match`, `matcha`, and `fmatcha` functions.
-# 
+#
 #   add parallelism into the C library code, including a file walk,
 #   to offer the full `frex` stack within the C code.
-# 
+#
 #   fix all documentation to align with the current structure
-# 
+#
 #   write a C function for translating from classic regular
 #   expressions into fast regular expressions
-# 
+#
 #   should allow external compilation of regex, so that the same
 #   expression can be efficiently reused many times
-# 
+#
 #   default regex library has a `finditer` command that iterates over
 #   matches and streams bytes to the regular experssion library from
 #   a buffer, can that be done here?
@@ -36,39 +36,39 @@
 #      being given a start index and number of bytes to parse,
 #      maintaining a global state that is used for repeated calls to
 #      the same C function
-# 
+#
 #   create a Python test case that would reveal any memory leak in the
 #   returned allocatable arrays from the C library
-# 
+#
 #   look into building c extensions automatically on any platform,
 #   some compilation customization will need to be done for windows
 #   ^^ should I support something I don't plan on using myself?
-# 
+#
 #   write a "summary" of the algorithm in HTML with embedded SVG files
 #   and a theoretic description
-# 
+#
 #   build some other code that uses "match" and make sure it works as
 #   would be expected, measure performance to see what's slow
-# 
+#
 #   use Pool.map instead of the homegrown solution, remove dependency
 #   on the parallel map code <- the Pool.map solution is slower, so
 #   maybe it's best to use the custom matching code. Otherwise, it
 #   might be best to just use `os.fork` and manually create all of
 #   the multiprocessing environment. Then this code will definitely
 #   not work on Windows.
-# 
+#
 #   convert things that are not bytes nor strings into strings using
 #   the "str" function inside of `match`?
 #
 #   make the test code automatically run when the code is compiled,
 #   checking for correct compilation
-# 
+#
 #   regex line based mode from the command line
-# 
+#
 #   regex invert match from the command line (default to activate line based mode)
-# 
+#
 #  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# 
+#
 #                            C development
 # 
 #   Route all core matching logic to the same function, decorate for different
@@ -283,22 +283,85 @@ def _safe_char(value: str) -> str:
     return value
 
 
-# Compile a translated regex into canonical tokens and token-set flags.
+# Escape one byte for readable compiled-token displays.
+#
+# Arguments:
+#   value (int): byte value to render safely
+#
+# Returns:
+#   (str): printable display for the byte
+#
+def _safe_byte(value):
+    if (value < 128): return _safe_char(chr(value))
+    return f"\\x{value:02x}"
+
+
+# Convert a UTF-8 byte boundary into a Python string index.
+#
+# Arguments:
+#   string (str): Unicode string containing the boundary
+#   byte_index (int): UTF-8 byte boundary to convert
+#
+# Returns:
+#   (int): matching Python character index
+#
+def _byte_to_char_index(string, byte_index):
+    n_bytes = 0
+    for i, char in enumerate(string):
+        if (n_bytes == byte_index): return i
+        n_bytes += len(char.encode("utf-8"))
+        if (n_bytes == byte_index): return i+1
+        if (n_bytes > byte_index):
+            raise(RegexError("Regex match splits a Unicode character."))
+    if (n_bytes == byte_index): return len(string)
+    raise(RegexError("Byte offset is outside the Unicode string."))
+
+
+# Project byte labels onto Python string characters.
+#
+# Arguments:
+#   string (str): Unicode string matched by the byte labels
+#   labels (list[int]): token label per UTF-8 byte
+#   groups (list[int]): group label per UTF-8 byte
+#
+# Returns:
+#   (tuple): token and group labels per Python character
+#
+def _project_labels(string, labels, groups):
+    char_labels = []
+    char_groups = []
+    byte_index = 0
+    for char in string:
+        n_bytes = len(char.encode("utf-8"))
+        label_values = labels[byte_index:byte_index+n_bytes]
+        group_values = groups[byte_index:byte_index+n_bytes]
+        if (len(set(group_values)) > 1):
+            raise(RegexError("Regex labels split a Unicode character across groups."))
+        char_labels.append(label_values[0])
+        char_groups.append(group_values[0])
+        byte_index += n_bytes
+    if (byte_index != len(labels)):
+        raise(RegexError("Regex labels do not align with the Unicode string."))
+    return char_labels, char_groups
+
+
+# Compile a translated regex into canonical tokens, token-set flags, and groups.
 # 
 # Arguments:
 #   regex (str): translated regex for compilation
 # 
 # Returns:
-#   (tuple): compiled token displays and token-set flags
+#   (tuple): compiled token displays, token-set flags, group labels, and spans
 # 
 def _compiled_regex(regex):
     if (type(regex) == str): regex = regex.encode("utf-8")
+    regex_bytes = regex
     n_tokens = ctypes.c_int()
     n_groups = ctypes.c_int()
     # Parse the regex first so Python can surface regex errors before inspection.
     clib._count(ctypes.c_char_p(regex), ctypes.byref(n_tokens), ctypes.byref(n_groups))
     if (n_tokens.value < 0): translate_return_values(regex, n_tokens.value, n_groups.value)
-    if (n_tokens.value == 0): return [], []
+    if (n_tokens.value == 0): return [], [], [], []
     tokens = (ctypes.c_char*(n_tokens.value+1))()
     jumps = (ctypes.c_int*n_tokens.value)()
     jumpf = (ctypes.c_int*n_tokens.value)()
@@ -306,51 +369,128 @@ def _compiled_regex(regex):
     # Compile the regex exactly the way the C matcher does.
     clib._set_jump(ctypes.c_char_p(regex), n_tokens.value, n_groups.value,
                    tokens, jumps, jumpf, jumpi)
-    token_chars = tokens.raw[:n_tokens.value].decode("utf-8")
+    token_bytes = tokens.raw[:n_tokens.value]
     token_sets = list(jumpi.raw[:n_tokens.value])
     displays = []
-    for i, token in enumerate(token_chars):
-        token = _safe_char(token)
+    for i, token in enumerate(token_bytes):
+        token = _safe_byte(token)
         # Mark token-set boundaries so the compiled view is readable.
         if (token_sets[i] == SET_TOKEN_BODY) and ((i == 0) or (token_sets[i-1] != SET_TOKEN_BODY)):
             token = "[" + token
         if (token_sets[i] == SET_TOKEN_LAST):
             token = token + "]"
         displays.append(token)
-    return displays, token_sets
+    g_mods = [ord(" ")] * n_groups.value
+    group_spans = [-1] * (2*n_groups.value)
+    gi_stack = []
+    s_stack = []
+    gi = -1
+    cgs = 0
+    ng = 0
+    for i, token in enumerate(regex_bytes):
+        if (token in b"([{") and (cgs != ord("[")):
+            gi = ng
+            ng += 1
+            cgs = token
+            gi_stack.append(gi)
+            s_stack.append(token)
+            group_spans[2*gi:2*gi+2] = [gi, gi]
+        elif (gi_stack) and (((cgs == ord("(")) and (token == ord(")"))) or
+                             ((cgs == ord("[")) and (token == ord("]"))) or
+                             ((cgs == ord("{")) and (token == ord("}")))):
+            if (i+1 < len(regex_bytes)) and (regex_bytes[i+1] in b"*?|"): g_mods[gi] = regex_bytes[i+1]
+            group_spans[2*gi+1] = ng-1
+            gi_stack.pop()
+            s_stack.pop()
+            gi = gi_stack[-1] if gi_stack else -1
+            cgs = s_stack[-1] if s_stack else 0
+    token_groups = []
+    gi_stack = []
+    s_stack = []
+    gi = -1
+    cgs = 0
+    ng = 0
+    i = 0
+    while (i < len(regex_bytes)) and (len(token_groups) < n_tokens.value):
+        token = regex_bytes[i]
+        if (token in b"([{") and (cgs != ord("[")):
+            gi = ng
+            ng += 1
+            cgs = token
+            gi_stack.append(gi)
+            s_stack.append(token)
+            if (g_mods[gi] != ord(" ")): token_groups.append(gi)
+        elif (gi_stack) and (((cgs == ord("(")) and (token == ord(")"))) or
+                             ((cgs == ord("[")) and (token == ord("]"))) or
+                             ((cgs == ord("{")) and (token == ord("}")))):
+            gi_stack.pop()
+            s_stack.pop()
+            gi = gi_stack[-1] if gi_stack else -1
+            cgs = s_stack[-1] if s_stack else 0
+        else:
+            nx_token = regex_bytes[i+1] if (i+1 < len(regex_bytes)) else 0
+            if (cgs != ord("[")) and (nx_token in b"*?|"):
+                token_groups.append(gi)
+                i += 1
+            if (cgs == ord("[")) or (token not in b"*?|"):
+                token_groups.append(gi)
+        i += 1
+    return displays, token_sets, token_groups, group_spans
 
 
-# Label each byte in an exact matched window with compiled token indices.
+# Label each byte in an exact matched window with compiled token and group indices.
 # 
 # Arguments:
 #   regex (str): regex supplied by the caller
 #   string (str | bytes): exact matched window to label
+#   group (int | None): optional group index to extract
+#   byte_level (bool): whether to return raw byte-level labels for strings
 #   translate_kwargs (dict): options forwarded to translate_regex
 # 
 # Returns:
-#   (list): token index per byte, or None if the window does not match exactly
+#   (tuple | str | bytes): labels and spans, or one extracted group value
 # 
-def label(regex, string, **translate_kwargs):
+def label(regex, string, group=None, byte_level=False, **translate_kwargs):
     regex = translate_regex(regex, **translate_kwargs)
     # Validate the compiled regex first so Python raises the usual regex errors.
-    _compiled_regex(regex)
+    _, _, _, compiled_spans = _compiled_regex(regex)
     labels = ctypes.c_void_p()
+    groups = ctypes.c_void_p()
+    spans = ctypes.c_void_p()
+    original_string = string
+    is_string = (type(string) == str)
     if (type(regex) == str): regex = regex.encode("utf-8")
     if (type(string) == str): string = string.encode("utf-8")
     # Ask the C helper to label the exact window and translate the no-match sentinel.
-    n = clib.label(ctypes.c_char_p(regex), ctypes.c_char_p(string), ctypes.byref(labels))
+    n = clib.label(ctypes.c_char_p(regex), ctypes.c_char_p(string),
+                   ctypes.byref(labels), ctypes.byref(groups), ctypes.byref(spans))
     if (n == LABEL_NO_MATCH_ERROR): return None
     if (n == REGEX_MEMORY_ERROR): raise(MemoryError("Failed memory allocation."))
-    if (n == 0): return []
+    if (n == 0):
+        if (group is not None): return "" if (type(original_string) == str) else b""
+        return [], [], []
     values = list((ctypes.c_int*n).from_address(labels.value))
+    group_values = list((ctypes.c_int*n).from_address(groups.value))
+    span_values = list((ctypes.c_int*len(compiled_spans)).from_address(spans.value)) if compiled_spans else []
     libc.free(labels.value)
-    return values
+    libc.free(groups.value)
+    if (spans.value): libc.free(spans.value)
+    if (is_string) and (not byte_level):
+        values, group_values = _project_labels(original_string, values, group_values)
+    if (group is None): return values, group_values, span_values
+    if (group < 0) or (2*group+1 >= len(span_values)): return None
+    lo, hi = span_values[2*group:2*group+2]
+    indexes = [i for i, gi in enumerate(group_values) if lo <= gi <= hi]
+    if (not indexes): return "" if is_string else b""
+    if (is_string) and byte_level: return string[indexes[0]:indexes[-1]+1]
+    return original_string[indexes[0]:indexes[-1]+1]
 
 
-# Format a labeled match window so characters and token ids line up.
+# Format a labeled match window so characters, token ids, and group ids line up.
 # 
 # Arguments:
 #   label_values (list[int]): token labels for each byte in the match window
+#   group_values (list[int]): group labels for each byte in the match window
 #   string (str): source string that contains the match
 #   start (int): inclusive match start
 #   end (int): exclusive match end
@@ -358,13 +498,14 @@ def label(regex, string, **translate_kwargs):
 # Returns:
 #   (str): formatted character and label rows for the match window
 # 
-def _format_labels(label_values, string, start, end):
+def _format_labels(label_values, group_values, string, start, end):
     chars = list(map(_safe_char, string[start:end]))
-    widths = [max(len(chars[i]), len(str(label_values[i]))) for i in range(len(label_values))]
+    widths = [max(len(chars[i]), len(str(label_values[i])), len(str(group_values[i]))) for i in range(len(label_values))]
     # Pad each displayed byte so the aligned token indices remain readable.
     char_row = " ".join(chars[i].ljust(widths[i]) for i in range(len(chars)))
     label_row = " ".join(str(label_values[i]).ljust(widths[i]) for i in range(len(label_values)))
-    return f"Window : {char_row}\nLabels : {label_row}"
+    group_row = " ".join(str(group_values[i]).ljust(widths[i]) for i in range(len(group_values)))
+    return f"Window : {char_row}\nLabels : {label_row}\nGroups : {group_row}"
 
 
 # Show the translated regex, compiled tokens, and byte labels for each match.
@@ -379,11 +520,13 @@ def _format_labels(label_values, string, start, end):
 # 
 def show_label(regex, string, **translate_kwargs):
     prefixed = translate_regex(regex, **translate_kwargs)
-    tokens, _ = _compiled_regex(prefixed)
-    widths = [max(len(token), len(str(i))) for i, token in enumerate(tokens)]
+    tokens, _, groups, spans = _compiled_regex(prefixed)
+    widths = [max(len(tokens[i]), len(str(i)), len(str(groups[i]))) for i in range(len(tokens))]
     # Pad compiled tokens so their canonical indices align underneath.
     compiled = " ".join(tokens[i].ljust(widths[i]) for i in range(len(tokens))) if tokens else "(empty)"
     indices = " ".join(str(i).ljust(widths[i]) for i in range(len(tokens))) if tokens else ""
+    compiled_groups = " ".join(str(groups[i]).ljust(widths[i]) for i in range(len(groups))) if groups else ""
+    group_spans = " ".join(f"{i//2}:{spans[i]}-{spans[i+1]}" for i in range(0, len(spans), 2))
     starts, ends = matcha(regex, string, **translate_kwargs)
     lines = [
         f"Regex    : {regex}",
@@ -391,14 +534,28 @@ def show_label(regex, string, **translate_kwargs):
         f"Compiled : {compiled}",
     ]
     if (indices): lines.append(f"Indices  : {indices}")
+    if (compiled_groups): lines.append(f"Groups   : {compiled_groups}")
+    if (group_spans): lines.append(f"Spans    : {group_spans}")
     lines.append(f"Input    : {''.join(map(_safe_char, string))}")
     if (len(starts) == 0):
         lines.append("Matches  : none")
     for i, (start, end) in enumerate(zip(starts, ends), start=1):
-        labels = label("^" + prefixed, string[start:end])
-        lines.append(f"Match {i:<2d}: {start} -> {end}")
+        show_start = _byte_to_char_index(string, start) if (type(string) == str) else start
+        show_end = _byte_to_char_index(string, end) if (type(string) == str) else end
+        labeled = label("^" + prefixed, string[show_start:show_end], case_sensitive=True)
+        if (labeled is None) and prefixed.startswith(".*"):
+            labeled = label("^" + prefixed, string[:show_end], case_sensitive=True)
+            show_start = next((j for j, value in enumerate(labeled[0]) if value != 1), show_start) if labeled else show_start
+        if (labeled is None):
+            lines.append(f"Match {i:<2d}: {show_start} -> {show_end}")
+            lines.append("Labels   : unavailable")
+            continue
+        labels, groups, _ = labeled
+        if (len(labels) != show_end-show_start):
+            labels, groups = labels[show_start:show_end], groups[show_start:show_end]
+        lines.append(f"Match {i:<2d}: {show_start} -> {show_end}")
         # Render the exact matched window and the labels returned by the C helper.
-        lines.append(_format_labels(labels, string, start, end))
+        lines.append(_format_labels(labels, groups, string, show_start, show_end))
     report = "\n".join(lines)
     print(report)
     return report
@@ -427,9 +584,11 @@ def show_label(regex, string, **translate_kwargs):
 #  - If "$" is the last character of "regex", it will be substituted
 #    with "{.}", the appropriate pattern for end-of-string matches.
 # 
-def match(regex, string, **translate_kwargs):
+def match(regex, string, group=None, **translate_kwargs):
     # Translate the regular expression to expected syntax.
     regex = translate_regex(regex, **translate_kwargs)
+    regex_text = regex.decode("utf-8") if (type(regex) == bytes) else regex
+    original_string = string
     # Call the C utillity.
     #   initialize memory storage for the start and end of a match
     start = ctypes.c_int()
@@ -443,7 +602,10 @@ def match(regex, string, **translate_kwargs):
     clib.match(c_regex, c_string, ctypes.byref(start), ctypes.byref(end))
     del(c_regex, c_string, string)
     # Return the values from the C library (translating them appropriately)
-    return translate_return_values(regex, start.value, end.value)
+    result = translate_return_values(regex, start.value, end.value)
+    if (group is None) or (result is None): return result
+    end_index = _byte_to_char_index(original_string, end.value) if (type(original_string) == str) else end.value
+    return label("^" + regex_text, original_string[:end_index], group=group, case_sensitive=True)
 
 # Get all matches for a regex.
 def matcha(regex, string, **translate_kwargs):

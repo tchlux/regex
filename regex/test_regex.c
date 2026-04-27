@@ -641,6 +641,8 @@ int run_tests() {
   int * starts;
   int * ends;
   int * labels;
+  int * group_labels;
+  int * group_spans;
   matcha("a*", "", &n_matches, &starts, &ends);
   if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 0)) {
     printf("ERROR: Bad empty-string match returned by matcha.\n");
@@ -648,61 +650,101 @@ int run_tests() {
   }
   free(starts);
 
-  if (label("rx", "rx", &labels) != 2 || labels[0] != 0 || labels[1] != 1) {
+  if (label("rx", "rx", &labels, &group_labels, &group_spans) != 2 ||
+      labels[0] != 0 || labels[1] != 1 ||
+      group_labels[0] != -1 || group_labels[1] != -1 || group_spans != NULL) {
     printf("ERROR: Bad literal labels returned by label.\n");
     return(10);
   }
   free(labels);
+  free(group_labels);
 
-  if (label("a*", "aaa", &labels) != 3 || labels[0] != 1 ||
-      labels[1] != 1 || labels[2] != 1) {
+  if (label("a*", "aaa", &labels, &group_labels, &group_spans) != 3 || labels[0] != 1 ||
+      labels[1] != 1 || labels[2] != 1 || group_labels[0] != -1 ||
+      group_labels[1] != -1 || group_labels[2] != -1 || group_spans != NULL) {
     printf("ERROR: Bad repeated-token labels returned by label.\n");
     return(11);
   }
   free(labels);
+  free(group_labels);
 
-  if (label(".*rx", "find the symbol 'rx", &labels) != 19) {
+  if (label(".*rx", "find the symbol 'rx", &labels, &group_labels, &group_spans) != 19) {
     printf("ERROR: Bad wildcard label length returned by label.\n");
     return(12);
   }
   for (int index = 0; index < 17; index++) {
-    if (labels[index] != 1) {
+    if ((labels[index] != 1) || (group_labels[index] != -1)) {
       printf("ERROR: Bad wildcard prefix labels returned by label.\n");
       return(13);
     }
   }
-  if (labels[17] != 2 || labels[18] != 3) {
+  if (labels[17] != 2 || labels[18] != 3 ||
+      group_labels[17] != -1 || group_labels[18] != -1) {
     printf("ERROR: Bad wildcard suffix labels returned by label.\n");
     return(14);
   }
   free(labels);
+  free(group_labels);
+  free(group_spans);
 
-  if (label("[ab]", "b", &labels) != 1 || labels[0] != 1) {
+  if (label("[ab]", "b", &labels, &group_labels, &group_spans) != 1 ||
+      labels[0] != 1 || group_labels[0] != 0 ||
+      group_spans[0] != 0 || group_spans[1] != 0) {
     printf("ERROR: Bad token-set labels returned by label.\n");
     return(15);
   }
   free(labels);
+  free(group_labels);
+  free(group_spans);
 
-  if (label("{[ab]}", "c", &labels) != 1 || labels[0] != 1) {
+  if (label("{[ab]}", "c", &labels, &group_labels, &group_spans) != 1 ||
+      labels[0] != 1 || group_labels[0] != 1 ||
+      group_spans[0] != 0 || group_spans[1] != 1 ||
+      group_spans[2] != 1 || group_spans[3] != 1) {
     printf("ERROR: Bad negated token-set labels returned by label.\n");
     return(16);
   }
   free(labels);
+  free(group_labels);
+  free(group_spans);
 
-  if (label("aa", "aaa", &labels) != LABEL_NO_MATCH_ERROR || labels != NULL) {
-    printf("ERROR: Bad exact-window no-match returned by label.\n");
+  if (label("(rx)", "rx", &labels, &group_labels, &group_spans) != 2 ||
+      group_labels[0] != 0 || group_labels[1] != 0 ||
+      group_spans[0] != 0 || group_spans[1] != 0) {
+    printf("ERROR: Bad parenthesized group labels returned by label.\n");
     return(17);
   }
+  free(labels);
+  free(group_labels);
+  free(group_spans);
 
-  if (label("a*", "", &labels) != 0 || labels != NULL) {
-    printf("ERROR: Bad empty-match labels returned by label.\n");
+  if (label("a([bc])", "ab", &labels, &group_labels, &group_spans) != 2 ||
+      group_labels[0] != -1 || group_labels[1] != 1 ||
+      group_spans[0] != 0 || group_spans[1] != 1 ||
+      group_spans[2] != 1 || group_spans[3] != 1) {
+    printf("ERROR: Bad nested group labels returned by label.\n");
     return(18);
+  }
+  free(labels);
+  free(group_labels);
+  free(group_spans);
+
+  if (label("aa", "aaa", &labels, &group_labels, &group_spans) != LABEL_NO_MATCH_ERROR ||
+      labels != NULL || group_labels != NULL || group_spans != NULL) {
+    printf("ERROR: Bad exact-window no-match returned by label.\n");
+    return(19);
+  }
+
+  if (label("a*", "", &labels, &group_labels, &group_spans) != 0 ||
+      labels != NULL || group_labels != NULL || group_spans != NULL) {
+    printf("ERROR: Bad empty-match labels returned by label.\n");
+    return(20);
   }
 
   matcha("a", "", &n_matches, &starts, &ends);
   if (n_matches != 0) {
     printf("ERROR: Bad empty-string no-match returned by matcha.\n");
-    return(19);
+    return(21);
   }
 
   matcha("a|a", "baa", &n_matches, &starts, &ends);
