@@ -1240,7 +1240,7 @@ int label(const char * regex, const char * string, int ** labels,
         } else if (jumpi[j] == SET_TOKEN_LAST) {
           LABEL_STACK_NEXT_TOKEN(nstack, ntrace, ins, inns, 1);
         } else {
-          LABEL_STACK_NEXT_TOKEN(nstack, ntrace, ins, inns, 0);
+          LABEL_STACK_NEXT_TOKEN(nstack, ntrace, ins, inns, c != '\0');
         }
       }
     }

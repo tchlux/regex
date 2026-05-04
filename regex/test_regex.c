@@ -802,6 +802,18 @@ int run_tests() {
   free(group_labels);
   free(group_spans);
 
+  if (label("a{b}c", "axc", &labels, &group_labels, &group_spans) != 3 ||
+      labels[0] != 0 || labels[1] != 1 || labels[2] != 2 ||
+      group_labels[0] != -1 || group_labels[1] != 0 ||
+      group_labels[2] != -1 ||
+      group_spans[0] != 0 || group_spans[1] != 0) {
+    printf("ERROR: Bad negated-token labels returned by label.\n");
+    return(55);
+  }
+  free(labels);
+  free(group_labels);
+  free(group_spans);
+
   if (label("(rx)", "rx", &labels, &group_labels, &group_spans) != 2 ||
       group_labels[0] != 0 || group_labels[1] != 0 ||
       group_spans[0] != 0 || group_spans[1] != 0) {
