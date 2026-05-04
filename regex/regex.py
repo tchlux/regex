@@ -191,13 +191,8 @@ def translate_regex(regex, case_sensitive=True):
     # Do substitutions that make the underlying regex implementation
     # behave more like common existing regex packages.
     if (len(regex) > 0):
-        # Add a ".*" to the front of the regex if the beginning of the
-        # string was not explicitly desired in the match pattern.
-        if (regex[0] == "^"): regex = regex[1:]
-        elif ((len(regex) < 2) or (regex[0] != ".") or (regex[1] != '*')): 
-            regex = ".*" + regex
-        # Add a "{.}" to the end of the regex if the end of the string
-        # was explicitly requested in the pattern.
+        # Mark explicit start and end anchors in the C regex syntax.
+        if (regex[0] == "^"): regex = "{.}" + regex[1:]
         if (regex[-1] == "$"): regex = regex[:-1] + "{.}"
         # Do some of the standard character classes.
         regex = regex.replace("\\s", WHITESPACE)
@@ -244,6 +239,12 @@ def translate_regex(regex, case_sensitive=True):
             i += 1
     # Return the now-prepared regular expression.
     return regex
+
+
+def _compiled_input(regex):
+    if (type(regex) == str):
+        return regex[3:] if regex.startswith("{.}") else regex
+    return regex[3:] if regex.startswith(b"{.}") else regex
 
 
 # Translate 'start' and 'end' values that are returned by the `regex.c`
@@ -354,13 +355,17 @@ def _project_labels(string, labels, groups):
 #   (tuple): compiled token displays, token-set flags, group labels, and spans
 # 
 def _compiled_regex(regex):
+    original_regex = regex
+    anchored = _compiled_input(regex) != regex
+    regex = _compiled_input(regex)
     if (type(regex) == str): regex = regex.encode("utf-8")
     regex_bytes = regex
     n_tokens = ctypes.c_int()
     n_groups = ctypes.c_int()
     # Parse the regex first so Python can surface regex errors before inspection.
     clib._count(ctypes.c_char_p(regex), ctypes.byref(n_tokens), ctypes.byref(n_groups))
-    if (n_tokens.value < 0): translate_return_values(regex, n_tokens.value, n_groups.value)
+    if (n_tokens.value < 0):
+        translate_return_values(original_regex, n_tokens.value - 3*anchored, n_groups.value)
     if (n_tokens.value == 0): return [], [], [], []
     tokens = (ctypes.c_char*(n_tokens.value+1))()
     jumps = (ctypes.c_int*n_tokens.value)()
@@ -519,8 +524,8 @@ def _format_labels(label_values, group_values, string, start, end):
 #   (str): formatted inspection report
 # 
 def show_label(regex, string, **translate_kwargs):
-    prefixed = translate_regex(regex, **translate_kwargs)
-    tokens, _, groups, spans = _compiled_regex(prefixed)
+    translated = translate_regex(regex, **translate_kwargs)
+    tokens, _, groups, spans = _compiled_regex(translated)
     widths = [max(len(tokens[i]), len(str(i)), len(str(groups[i]))) for i in range(len(tokens))]
     # Pad compiled tokens so their canonical indices align underneath.
     compiled = " ".join(tokens[i].ljust(widths[i]) for i in range(len(tokens))) if tokens else "(empty)"
@@ -530,7 +535,7 @@ def show_label(regex, string, **translate_kwargs):
     starts, ends = matcha(regex, string, **translate_kwargs)
     lines = [
         f"Regex    : {regex}",
-        f"Prefixed : {prefixed}",
+        f"Compiled regex : {translated}",
         f"Compiled : {compiled}",
     ]
     if (indices): lines.append(f"Indices  : {indices}")
@@ -542,10 +547,7 @@ def show_label(regex, string, **translate_kwargs):
     for i, (start, end) in enumerate(zip(starts, ends), start=1):
         show_start = _byte_to_char_index(string, start) if (type(string) == str) else start
         show_end = _byte_to_char_index(string, end) if (type(string) == str) else end
-        labeled = label("^" + prefixed, string[show_start:show_end], case_sensitive=True)
-        if (labeled is None) and prefixed.startswith(".*"):
-            labeled = label("^" + prefixed, string[:show_end], case_sensitive=True)
-            show_start = next((j for j, value in enumerate(labeled[0]) if value != 1), show_start) if labeled else show_start
+        labeled = label(translated, string[show_start:show_end], case_sensitive=True)
         if (labeled is None):
             lines.append(f"Match {i:<2d}: {show_start} -> {show_end}")
             lines.append("Labels   : unavailable")
@@ -576,11 +578,8 @@ def show_label(regex, string, **translate_kwargs):
 # "regex" to the "match" function in 'regex.c'. These substitutions
 # include:
 #
-#  - If "^" is at the beginning of "regex", it will be removed (because
-#    the underlying library implicitly assumes beginning-of-string.
-#  - If no "^" is placed at the beginning of "regex", then ".*" will
-#    be appened to the beginning of "regex" to behave like other 
-#    regular expression libraries.
+#  - If "^" is at the beginning of "regex", it will be substituted
+#    with "{.}", the appropriate pattern for start-of-string matches.
 #  - If "$" is the last character of "regex", it will be substituted
 #    with "{.}", the appropriate pattern for end-of-string matches.
 # 
@@ -604,8 +603,9 @@ def match(regex, string, group=None, **translate_kwargs):
     # Return the values from the C library (translating them appropriately)
     result = translate_return_values(regex, start.value, end.value)
     if (group is None) or (result is None): return result
+    start_index = _byte_to_char_index(original_string, start.value) if (type(original_string) == str) else start.value
     end_index = _byte_to_char_index(original_string, end.value) if (type(original_string) == str) else end.value
-    return label("^" + regex_text, original_string[:end_index], group=group, case_sensitive=True)
+    return label(regex_text, original_string[start_index:end_index], group=group, case_sensitive=True)
 
 # Get all matches for a regex.
 def matcha(regex, string, **translate_kwargs):

@@ -115,9 +115,8 @@ python3 regex.py "<search-pattern>" "<path-pattern-1>" ["<path-pattern-2>"] [...
 // 
 //
 // BEHAVIOR
-//  C functions match from the current/start position. Prepend ".*"
-//  to search past leading text. Python wrappers prepend ".*" unless
-//  "^" is used. Matches are first-discovered, not greedy longest.
+//  match, matcha, and fmatcha search past leading text. Begin a regex
+//  with "{.}" to match only from the start. Matches are first-discovered, not greedy longest.
 //  The "|" operator applies to the neighboring token (group) unless
 //  explicit groups are used. NUL terminates string APIs. Nullable
 //  matcha patterns may return zero-length and overlapping-looking
@@ -175,8 +174,7 @@ python3 regex.py "<search-pattern>" "<path-pattern-1>" ["<path-pattern-2>"] [...
 // 
 //    +     replace with one explicit copy of preceding token (group),
 //            followed by a copy with '*'
-//    ^     this is implicitly at the beginning of all regex'es,
-//            disable by including ".*" at the beginning of the regex
+//    ^     include "{.}" at the beginning of the regex
 //    $     include "{.}" at the end of the regex
 //    [~ab] replace with {[ab]}
 //    \d    replace with "[0123456789]"
