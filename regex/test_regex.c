@@ -310,7 +310,7 @@ int run_tests() {
 
     { "abc",  3, 0,
       "abc",  (int[]){1,2,3}, (int[]){-1,-1,-1}, (char[]){0,0,0},
-      " abc", -1, 0 },
+      " abc", 1, 4 },
 
     { ".*abc", 5, 0,
       "*.abc", (int[]){1,0,3,4,5}, (int[]){2,-1,-1,-1,-1}, (char[]){0,0,0,0,0},
@@ -438,7 +438,7 @@ int run_tests() {
 
     { ".*end{.}",          6, 1,
       "*.end.",            (int[]){1,0,3,4,5,-1}, (int[]){2,-1,-1,-1,-1,6}, (char[]){0,0,0,0,0,0},
-      " does it ever end", 0, 18 },
+      " does it ever end", 0, 17 },
 
     { "[|]",    1, 1,
       "|",      (int[]){1}, (int[]){-1}, (char[]){2},
@@ -446,7 +446,7 @@ int run_tests() {
 
     { "{[.]}*{.}", 3, 3,
       "*..",       (int[]){1,-1,-1}, (int[]){2,0,3}, (char[]){0,2,0},
-      "anything",  0, 9 },
+      "anything",  0, 8 },
 
     { "[a]*{[a]}", 3, 3,
       "*aa",      (int[]){1,0,-1}, (int[]){2,-1,3}, (char[]){0,2,2},
@@ -643,6 +643,45 @@ int run_tests() {
   int * labels;
   int * group_labels;
   int * group_spans;
+
+  int start;
+  int end;
+  match("abc", "xxabc", &start, &end);
+  if ((start != 2) || (end != 5)) {
+    printf("ERROR: Bad unanchored match returned by match.\n");
+    return(32);
+  }
+
+  match("{.}abc", "abc", &start, &end);
+  if ((start != 0) || (end != 3)) {
+    printf("ERROR: Bad start-anchored match returned by match.\n");
+    return(33);
+  }
+
+  match("{.}abc", "xxabc", &start, &end);
+  if ((start != -1) || (end != 0)) {
+    printf("ERROR: Bad start-anchored no-match returned by match.\n");
+    return(34);
+  }
+
+  match("abc{.}", "xxabc", &start, &end);
+  if ((start != 2) || (end != 5)) {
+    printf("ERROR: Bad end-anchored match returned by match.\n");
+    return(35);
+  }
+
+  match("abc{.}", "abcxx", &start, &end);
+  if ((start != -1) || (end != 0)) {
+    printf("ERROR: Bad end-anchored no-match returned by match.\n");
+    return(36);
+  }
+
+  match("{.}abc{", "", &start, &end);
+  if ((start != -8) || (end != REGEX_UNCLOSED_GROUP_ERROR)) {
+    printf("ERROR: Bad anchored regex error position returned by match.\n");
+    return(37);
+  }
+
   matcha("a*", "", &n_matches, &starts, &ends);
   if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 0)) {
     printf("ERROR: Bad empty-string match returned by matcha.\n");
@@ -658,6 +697,33 @@ int run_tests() {
   }
   free(labels);
   free(group_labels);
+
+  if (label("{.}abc", "abc", &labels, &group_labels, &group_spans) != 3 ||
+      labels[0] != 0 || labels[1] != 1 || labels[2] != 2 ||
+      group_labels[0] != -1 || group_labels[1] != -1 ||
+      group_labels[2] != -1 || group_spans != NULL) {
+    printf("ERROR: Bad start-anchored labels returned by label.\n");
+    return(38);
+  }
+  free(labels);
+  free(group_labels);
+
+  if (label("{.}abc", "xxabc", &labels, &group_labels, &group_spans) != LABEL_NO_MATCH_ERROR ||
+      labels != NULL || group_labels != NULL || group_spans != NULL) {
+    printf("ERROR: Bad start-anchored label no-match returned by label.\n");
+    return(39);
+  }
+
+  if (label("abc{.}", "abc", &labels, &group_labels, &group_spans) != 3 ||
+      labels[0] != 0 || labels[1] != 1 || labels[2] != 2 ||
+      group_labels[0] != -1 || group_labels[1] != -1 ||
+      group_labels[2] != -1 || group_spans == NULL) {
+    printf("ERROR: Bad end-anchored labels returned by label.\n");
+    return(40);
+  }
+  free(labels);
+  free(group_labels);
+  free(group_spans);
 
   if (label("a*", "aaa", &labels, &group_labels, &group_spans) != 3 || labels[0] != 1 ||
       labels[1] != 1 || labels[2] != 1 || group_labels[0] != -1 ||
@@ -747,6 +813,39 @@ int run_tests() {
     return(21);
   }
 
+  matcha("abc", "xxabc", &n_matches, &starts, &ends);
+  if ((n_matches != 1) || (starts[0] != 2) || (ends[0] != 5)) {
+    printf("ERROR: Bad unanchored matches returned by matcha.\n");
+    return(41);
+  }
+  free(starts);
+
+  matcha("{.}abc", "abc abc", &n_matches, &starts, &ends);
+  if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 3)) {
+    printf("ERROR: Bad start-anchored matches returned by matcha.\n");
+    return(42);
+  }
+  free(starts);
+
+  matcha("{.}abc", "xxabc", &n_matches, &starts, &ends);
+  if (n_matches != 0) {
+    printf("ERROR: Bad start-anchored no-match returned by matcha.\n");
+    return(43);
+  }
+
+  matcha("abc{.}", "xxabc", &n_matches, &starts, &ends);
+  if ((n_matches != 1) || (starts[0] != 2) || (ends[0] != 5)) {
+    printf("ERROR: Bad end-anchored matches returned by matcha.\n");
+    return(44);
+  }
+  free(starts);
+
+  matcha("abc{.}", "abcxx", &n_matches, &starts, &ends);
+  if (n_matches != 0) {
+    printf("ERROR: Bad end-anchored no-match returned by matcha.\n");
+    return(45);
+  }
+
   matcha("a|a", "baa", &n_matches, &starts, &ends);
   if ((n_matches != 2) || (starts[0] != 1) || (ends[0] != 2) ||
       (starts[1] != 2) || (ends[1] != 3)) {
@@ -780,6 +879,36 @@ int run_tests() {
       (lines[2] != 9)) {
     printf("ERROR: Bad nonoverlapping matches returned by fmatcha.\n");
     return(23);
+  }
+  free(starts);
+
+  char * anchor_path = "/tmp/regex_anchor_test.txt";
+  FILE * anchor_file = fopen(anchor_path, "wb");
+  if (anchor_file == NULL) {
+    printf("ERROR: Failed to create temporary anchor test file.\n");
+    return(46);
+  }
+  fputs("xxabc", anchor_file);
+  fclose(anchor_file);
+
+  fmatcha("{.}xx", anchor_path, &n_matches, &starts, &ends, &lines, 0.5);
+  if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 2)) {
+    printf("ERROR: Bad start-anchored matches returned by fmatcha.\n");
+    return(47);
+  }
+  free(starts);
+
+  fmatcha("{.}abc", anchor_path, &n_matches, &starts, &ends, &lines, 0.5);
+  if (n_matches != 0) {
+    printf("ERROR: Bad start-anchored no-match returned by fmatcha.\n");
+    return(48);
+  }
+
+  fmatcha("abc{.}", anchor_path, &n_matches, &starts, &ends, &lines, 0.5);
+  remove(anchor_path);
+  if ((n_matches != 1) || (starts[0] != 2) || (ends[0] != 5)) {
+    printf("ERROR: Bad end-anchored matches returned by fmatcha.\n");
+    return(49);
   }
   free(starts);
 

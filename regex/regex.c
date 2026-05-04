@@ -42,9 +42,8 @@
 // 
 //
 // BEHAVIOR
-//  C functions match from the current/start position. Prepend ".*"
-//  to search past leading text. Python wrappers prepend ".*" unless
-//  "^" is used. Matches are first-discovered, not greedy longest.
+//  match, matcha, and fmatcha search past leading text. Begin a regex
+//  with "{.}" to match only from the start. Matches are first-discovered, not greedy longest.
 //  The "|" operator applies to the neighboring token (group) unless
 //  explicit groups are used. NUL terminates string APIs. Nullable
 //  matcha patterns may return zero-length and overlapping-looking
@@ -102,8 +101,7 @@
 // 
 //    +     replace with one explicit copy of preceding token (group),
 //            followed by a copy with '*'
-//    ^     this is implicitly at the beginning of all regex'es,
-//            disable by including ".*" at the beginning of the regex
+//    ^     include "{.}" at the beginning of the regex
 //    $     include "{.}" at the end of the regex
 //    [~ab] replace with {[ab]}
 //    \d    replace with "[0123456789]"
@@ -159,6 +157,10 @@ typedef struct {
   int byte;
   int token;
 } trace_node;
+
+int _start_anchor(const char * regex) {
+  return (regex[0] == '{') && (regex[1] == '.') && (regex[2] == '}');
+}
 
 
 // Count the number of tokens and groups in a regular expression.
@@ -711,6 +713,8 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
 
 // Do a simple regular experession match.
 void match(const char * regex, const char * string, int * start, int * end) {
+  const int anchored = _start_anchor(regex);
+  if (anchored) regex += 3;
   // Count the number of tokens and groups in this regular expression.
   int n_tokens, n_groups;
   _count(regex, &n_tokens, &n_groups);
@@ -721,7 +725,7 @@ void match(const char * regex, const char * string, int * start, int * end) {
       (*start) = EXIT_TOKEN;
       (*end) = REGEX_NO_TOKENS_ERROR;
     } else {
-      (*start) = n_tokens;
+      (*start) = n_tokens - 3*anchored;
       (*end) = n_groups;
     }
     return;
@@ -800,7 +804,7 @@ void match(const char * regex, const char * string, int * start, int * end) {
       if (dest == n_tokens) {\
         (*start) = val;\
         (*end) = i;\
-        if ((jumpi[j]) || (ct != '*')) (*end)++;\
+        if ((jumpi[j]) || ((ct != '*') && ((ct != '.') || (c != '\0')))) (*end)++;\
         free(jumps);\
         return;\
       }\
@@ -894,6 +898,19 @@ void match(const char * regex, const char * string, int * start, int * end) {
     inns = (char*) temp; // set "in next stack"
     ins = -1; // reset the count of elements in "next stack"
 
+    // Restart at the next index if no tokens remain active.
+    if ((! anchored) && (ics < 0) && (c != '\0')) {
+      for (int j = 0; j < n_tokens; j++) {
+        active[j] = EXIT_TOKEN;
+        incs[j] = 0;
+        inns[j] = 0;
+      }
+      ics = 0;
+      cstack[ics] = 0;
+      active[0] = i+1;
+      incs[0] = 1;
+    }
+
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     #ifdef DEBUG
     if (DO_PRINT) {
@@ -919,6 +936,7 @@ void match(const char * regex, const char * string, int * start, int * end) {
 // Return the label count, a regex error code, or LABEL_NO_MATCH_ERROR.
 int label(const char * regex, const char * string, int ** labels,
           int ** groups, int ** group_spans) {
+  if (_start_anchor(regex)) regex += 3;
   *labels = NULL;
   *groups = NULL;
   *group_spans = NULL;
@@ -1109,7 +1127,8 @@ int label(const char * regex, const char * string, int ** labels,
       int new_trace = parent_trace;                                                  \
       if (consume) { ADD_TRACE(parent_trace, i, j); }                                \
       if (dest == n_tokens) {                                                        \
-        const int end = (((jumpi[j]) || (ct != '*')) ? i+1 : i);                     \
+        const int end = ((ct == '.') && (! jumpi[j]) && (c == '\0')) ? i :           \
+                        (((jumpi[j]) || (ct != '*')) ? i+1 : i);                     \
         if (end == string_len) {                                                     \
           if (string_len > 0) {                                                      \
             (*labels) = malloc(sizeof(int) * string_len);                            \
@@ -1235,6 +1254,8 @@ int label(const char * regex, const char * string, int ** labels,
 // Return arrays of the starts and ends of matches.
 void matcha(const char * regex, const char * string,
             int * n, int ** starts, int ** ends) {
+  const int anchored = _start_anchor(regex);
+  if (anchored) regex += 3;
   // Count the number of tokens and groups in this regular expression.
   (*n) = -1;
   int n_tokens, n_groups;
@@ -1259,7 +1280,7 @@ void matcha(const char * regex, const char * string,
       (*starts)[0] = EXIT_TOKEN;
       (*ends)[0] = REGEX_NO_TOKENS_ERROR;
     } else {
-      (*starts)[0] = n_tokens;
+      (*starts)[0] = n_tokens - 3*anchored;
       (*ends)[0] = n_groups;
     }
     // WARNING: returning pointers to allocated memory for two integers!
@@ -1334,7 +1355,8 @@ void matcha(const char * regex, const char * string,
   #define MATCHA_STACK_NEXT_TOKEN(stack, si, in_stack) \
     if ((dest >= 0) && (val >= active[dest])) { \
       if (dest == n_tokens) { \
-        const int end = (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
+        const int end = ((ct == '.') && (! jumpi[j]) && (c == '\0')) ? i : \
+                        (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
         if ((n_found == 0) || ((*starts)[n_found-1] != val) || ((*ends)[n_found-1] != end)) { \
           (*n)++; \
           if (n_found >= s_found) { \
@@ -1423,7 +1445,7 @@ void matcha(const char * regex, const char * string,
     ins = -1; // reset the count of elements in "next stack"
 
     // Restart at the next index if no tokens remain active.
-    if ((ics < 0) && (c != '\0')) {
+    if ((! anchored) && (ics < 0) && (c != '\0')) {
       ics = 0;
       cstack[ics] = 0;
       active[0] = i+1;
@@ -1490,6 +1512,9 @@ void fmatcha(const char * regex, const char * path,
     return;
   }
 
+  const int anchored = _start_anchor(regex);
+  if (anchored) regex += 3;
+
   // Count the number of tokens and groups in this regular expression.
   (*n) = -1;
   int n_tokens, n_groups;
@@ -1513,7 +1538,7 @@ void fmatcha(const char * regex, const char * path,
       (*starts)[0] = EXIT_TOKEN;
       (*ends)[0] = REGEX_NO_TOKENS_ERROR;
     } else {
-      (*starts)[0] = n_tokens;
+      (*starts)[0] = n_tokens - 3*anchored;
       (*ends)[0] = n_groups;
     }
     fclose(file);
@@ -1626,7 +1651,8 @@ void fmatcha(const char * regex, const char * path,
   #define FMATCHA_STACK_NEXT_TOKEN(stack, si, in_stack) \
     if ((dest >= 0) && (val >= active[dest])) { \
       if (dest == n_tokens) { \
-        const int end = (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
+        const int end = ((ct == '.') && (! jumpi[j]) && (c == EOF)) ? i : \
+                        (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
         if ((n_found == 0) || ((*starts)[n_found-1] != val) || ((*ends)[n_found-1] != end)) { \
           (*n)++; \
           if (n_found >= s_found) { \
@@ -1732,7 +1758,7 @@ void fmatcha(const char * regex, const char * path,
     ins = -1; // reset the count of elements in "next stack"
 
     // Restart at the next index if no tokens remain active.
-    if ((ics < 0) && (c != EOF)) {
+    if ((! anchored) && (ics < 0) && (c != EOF)) {
       ics = 0;
       cstack[ics] = 0;
       active[0] = i+1;
