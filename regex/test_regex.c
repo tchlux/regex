@@ -670,6 +670,30 @@ int run_tests() {
     return(35);
   }
 
+  match("({.}|[ \t\n\v\f\r])Try", "Try", &start, &end);
+  if ((start != 0) || (end != 3)) {
+    printf("ERROR: Bad branch start-anchor match returned by match.\n");
+    return(50);
+  }
+
+  match("({.}|[ \t\n\v\f\r])Try", " Try", &start, &end);
+  if ((start != 0) || (end != 4)) {
+    printf("ERROR: Bad branch whitespace match returned by match.\n");
+    return(51);
+  }
+
+  match("({.}|[ \t\n\v\f\r])Try", "xTry", &start, &end);
+  if ((start != -1) || (end != 0)) {
+    printf("ERROR: Bad branch start-anchor no-match returned by match.\n");
+    return(52);
+  }
+
+  match("({.}|[ \t\n\v\f\r])Try", "x Try", &start, &end);
+  if ((start != 1) || (end != 5)) {
+    printf("ERROR: Bad restarted branch whitespace match returned by match.\n");
+    return(53);
+  }
+
   match("abc{.}", "abcxx", &start, &end);
   if ((start != -1) || (end != 0)) {
     printf("ERROR: Bad end-anchored no-match returned by match.\n");

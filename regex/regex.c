@@ -129,6 +129,7 @@
 #define REGULAR_TOKEN 0
 #define SET_TOKEN_BODY 1
 #define SET_TOKEN_LAST 2
+#define START_ANCHOR 3
 #define DEFAULT_GROUP_MOD ' '
 #define MIN_SAMPLE_SIZE 100
 //      ^^ minimum number of bytes read before checking ASCII ratio
@@ -161,6 +162,11 @@ typedef struct {
 int _start_anchor(const char * regex) {
   return (regex[0] == '{') && (regex[1] == '.') && (regex[2] == '}');
 }
+
+#define IS_START_ANCHOR(regex, i, cgs) \
+  (((cgs) != '[') && ((regex)[i] == '{') && ((regex)[(i)+1] == '.') && \
+   ((regex)[(i)+2] == '}') && (((i) == 0) || ((regex)[(i)-1] == '(') || \
+                               ((regex)[(i)-1] == '|')))
 
 
 // Count the number of tokens and groups in a regular expression.
@@ -581,10 +587,12 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
   token = regex[i]; // current character
   
   char neg = 0; // whether or not current section is negated
+  int start_anchor_token = EXIT_TOKEN;
   while (token != '\0') {
     // Look for the beginning of a new group.
     if (((token == '(') || (token == '[') || (token == '{')) && (cgs != '[')) {
       // -------------------------------------------------------------
+      const int start_anchor_group = IS_START_ANCHOR(regex, i, cgs);
       gi = ng;              // set current group index
       cgs = token;          // set current group start character
       ng++;                 // increment the number of groups seen
@@ -592,6 +600,8 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
       iga++;                // increase active group index
       gi_stack[iga] = gi;   // push group index to stack
       s_stack[iga] = token; // push group start character to stack
+      if (start_anchor_group)
+        start_anchor_token = nt + (g_mods[gi] != DEFAULT_GROUP_MOD);
       // -------------------------------------------------------------
       // Push a modifier onto the stack if it exists.
       if (g_mods[gi] != DEFAULT_GROUP_MOD) {      
@@ -677,6 +687,10 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
           SET_JUMP(nt, nt+1, EXIT_TOKEN);
         }
       // if this is a standard token..
+      } else if (nt == start_anchor_token) {
+        jumps[nt] = redirect[nt+1];
+        jumpf[nt] = EXIT_TOKEN;
+        jumpi[nt] = START_ANCHOR;
       } else {
         SET_JUMP(nt, nt+1, EXIT_TOKEN);
       }
@@ -804,7 +818,8 @@ void match(const char * regex, const char * string, int * start, int * end) {
       if (dest == n_tokens) {\
         (*start) = val;\
         (*end) = i;\
-        if ((jumpi[j]) || ((ct != '*') && ((ct != '.') || (c != '\0')))) (*end)++;\
+        if ((jumpi[j] != START_ANCHOR) && \
+            ((jumpi[j]) || ((ct != '*') && ((ct != '.') || (c != '\0'))))) (*end)++;\
         free(jumps);\
         return;\
       }\
@@ -862,7 +877,10 @@ void match(const char * regex, const char * string, int * start, int * end) {
       // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
       // If this is a special character, add its tokens immediately to
       // the current stack (to be checked before next charactrer).
-      if ((ct == '*') && (! jumpi[j])) {
+      if (jumpi[j] == START_ANCHOR) {
+        dest = (i == 0) ? jumps[j] : jumpf[j];
+        MATCH_STACK_NEXT_TOKEN(cstack, ics, incs);
+      } else if ((ct == '*') && (! jumpi[j])) {
         if (j == 0) val = i; // ignore leading tokens where possible
         // stack will be popped (in reverse order), check failure
         //  branch *first*, or risk infinite recursion on success.
@@ -1127,8 +1145,9 @@ int label(const char * regex, const char * string, int ** labels,
       int new_trace = parent_trace;                                                  \
       if (consume) { ADD_TRACE(parent_trace, i, j); }                                \
       if (dest == n_tokens) {                                                        \
-        const int end = ((ct == '.') && (! jumpi[j]) && (c == '\0')) ? i :           \
-                        (((jumpi[j]) || (ct != '*')) ? i+1 : i);                     \
+        const int end = (jumpi[j] == START_ANCHOR) ? i :                             \
+                        (((ct == '.') && (! jumpi[j]) && (c == '\0')) ? i :           \
+                        (((jumpi[j]) || (ct != '*')) ? i+1 : i));                    \
         if (end == string_len) {                                                     \
           if (string_len > 0) {                                                      \
             (*labels) = malloc(sizeof(int) * string_len);                            \
@@ -1202,7 +1221,10 @@ int label(const char * regex, const char * string, int ** labels,
       incs[j] = 0;
       const char ct = tokens[j];
       int val = active[j];
-      if ((ct == '*') && (! jumpi[j])) {
+      if (jumpi[j] == START_ANCHOR) {
+        dest = (i == 0) ? jumps[j] : jumpf[j];
+        LABEL_STACK_NEXT_TOKEN(cstack, ctrace, ics, incs, 0);
+      } else if ((ct == '*') && (! jumpi[j])) {
         if (j == 0) val = i;
         dest = jumps[j];
         LABEL_STACK_NEXT_TOKEN(cstack, ctrace, ics, incs, 0);
@@ -1355,8 +1377,9 @@ void matcha(const char * regex, const char * string,
   #define MATCHA_STACK_NEXT_TOKEN(stack, si, in_stack) \
     if ((dest >= 0) && (val >= active[dest])) { \
       if (dest == n_tokens) { \
-        const int end = ((ct == '.') && (! jumpi[j]) && (c == '\0')) ? i : \
-                        (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
+        const int end = (jumpi[j] == START_ANCHOR) ? i : \
+                        (((ct == '.') && (! jumpi[j]) && (c == '\0')) ? i : \
+                        (((jumpi[j]) || (ct != '*')) ? i+1 : i)); \
         if ((n_found == 0) || ((*starts)[n_found-1] != val) || ((*ends)[n_found-1] != end)) { \
           (*n)++; \
           if (n_found >= s_found) { \
@@ -1410,7 +1433,10 @@ void matcha(const char * regex, const char * string,
       int val = active[j];
       // If this is a special character, add its tokens immediately to
       // the current stack (to be checked before next charactrer).
-      if ((ct == '*') && (! jumpi[j])) {
+      if (jumpi[j] == START_ANCHOR) {
+        dest = (i == 0) ? jumps[j] : jumpf[j];
+        MATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
+      } else if ((ct == '*') && (! jumpi[j])) {
         if (j == 0) val = i; // ignore leading tokens where possible
       dest = jumps[j];
       MATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
@@ -1651,8 +1677,9 @@ void fmatcha(const char * regex, const char * path,
   #define FMATCHA_STACK_NEXT_TOKEN(stack, si, in_stack) \
     if ((dest >= 0) && (val >= active[dest])) { \
       if (dest == n_tokens) { \
-        const int end = ((ct == '.') && (! jumpi[j]) && (c == EOF)) ? i : \
-                        (((jumpi[j]) || (ct != '*')) ? i+1 : i); \
+        const int end = (jumpi[j] == START_ANCHOR) ? i : \
+                        (((ct == '.') && (! jumpi[j]) && (c == EOF)) ? i : \
+                        (((jumpi[j]) || (ct != '*')) ? i+1 : i)); \
         if ((n_found == 0) || ((*starts)[n_found-1] != val) || ((*ends)[n_found-1] != end)) { \
           (*n)++; \
           if (n_found >= s_found) { \
@@ -1722,7 +1749,10 @@ void fmatcha(const char * regex, const char * path,
       int val = active[j];
       // If this is a special character, add its tokens immediately to
       // the current stack (to be checked before next charactrer).
-      if ((ct == '*') && (! jumpi[j])) {
+      if (jumpi[j] == START_ANCHOR) {
+        dest = (i == 0) ? jumps[j] : jumpf[j];
+        FMATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
+      } else if ((ct == '*') && (! jumpi[j])) {
         if (j == 0) val = i; // ignore leading tokens where possible
       dest = jumps[j];
       FMATCHA_STACK_NEXT_TOKEN(cstack, ics, incs);
