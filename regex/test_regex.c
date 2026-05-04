@@ -400,6 +400,10 @@ int run_tests() {
       "|a?bcde",       (int[]){1,2,3,4,7,6,7}, (int[]){5,-1,7,-1,-1,-1,-1}, (char[]){0,0,0,0,0,0,0},
       "abc",           0, 1 },
 
+    { "a( |(_))[bc]", 6, 3,
+      "a| _bc",       (int[]){1,2,4,4,6,6}, (int[]){-1,3,-1,-1,5,-1}, (char[]){0,0,0,0,1,2},
+      "a b",          0, 3 },
+
     { "(a(z.)*)[bc]*d*", 9, 3,
       "a*z.*bc*d",       (int[]){1,2,3,1,5,4,4,8,7}, (int[]){-1,4,-1,-1,7,6,-1,9,-1}, (char[]){0,0,0,0,0,1,2,0,0},
       "az.bcd",          0, 1 },
@@ -892,6 +896,14 @@ int run_tests() {
       (starts[2] != 1) || (ends[2] != 1)) {
     printf("ERROR: Bad deduplicated matches returned by matcha.\n");
     return(22);
+  }
+  free(starts);
+
+  matcha("a( |(_))[bc]", "a b|a_c|a x", &n_matches, &starts, &ends);
+  if ((n_matches != 2) || (starts[0] != 0) || (ends[0] != 3) ||
+      (starts[1] != 4) || (ends[1] != 7)) {
+    printf("ERROR: Bad grouped branch matches returned by matcha.\n");
+    return(54);
   }
   free(starts);
 

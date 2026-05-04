@@ -678,7 +678,7 @@ void _set_jump(const char * regex, const int n_tokens, int n_groups,
         } else if (nx_token == '|'){  
           const char nxnx_token = regex[i+1]; // guaranteed to exist
           if ((nxnx_token == '(') || (nxnx_token == '[') || (nxnx_token == '{')) {
-            SET_JUMP(nt, group_nexts[ng+1], EXIT_TOKEN); // last token jumps after next group
+            SET_JUMP(nt, group_nexts[ng], EXIT_TOKEN); // last token jumps after next group
           } else {
             SET_JUMP(nt, nt+2, EXIT_TOKEN); // last token jumps after next token
           }
