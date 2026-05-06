@@ -775,6 +775,7 @@ void match(const char * regex, const char * string, int * start, int * end) {
     free(jumps);
     return;
   }
+  const int unanchored_search = (! anchored) && (tokens[0] != '*');
   // Set all tokens to be inactive, convert ? to * for simplicity.
   active[n_tokens] = EXIT_TOKEN;
   for (int j = 0; j < n_tokens; j++) {
@@ -825,10 +826,15 @@ void match(const char * regex, const char * string, int * start, int * end) {
       }\
       if (in_stack[dest] == 0) {\
         si++;\
-        stack[si] = dest;\
+        int k = si;\
+        while ((k > 0) && (stack[k-1] > dest)) {\
+          stack[k] = stack[k-1];\
+          k--;\
+        }\
+        stack[k] = dest;\
+        if (unanchored_search || (active[dest] == EXIT_TOKEN)) active[dest] = val;\
       }\
       in_stack[dest] = 1;\
-      if (active[dest] == EXIT_TOKEN) active[dest] = val;\
     }
 
   // Start searching for a regular expression match. (the character
@@ -904,6 +910,14 @@ void match(const char * regex, const char * string, int * start, int * end) {
         }
       }
     }
+    if (unanchored_search && (c != '\0') && (inns[0] == 0)) {
+      for (int j = ins; j >= 0; j--) nstack[j+1] = nstack[j];
+      ins++;
+      nstack[0] = 0;
+      active[0] = i+1;
+      inns[0] = 1;
+    }
+
     // Switch out the current stack with the next stack.
     //   switch stack of token indices
     temp = (void*) cstack; // store "current stack"
@@ -915,19 +929,6 @@ void match(const char * regex, const char * string, int * start, int * end) {
     incs = inns; // set "in current stack"
     inns = (char*) temp; // set "in next stack"
     ins = -1; // reset the count of elements in "next stack"
-
-    // Restart at the next index if no tokens remain active.
-    if ((! anchored) && (ics < 0) && (c != '\0')) {
-      for (int j = 0; j < n_tokens; j++) {
-        active[j] = EXIT_TOKEN;
-        incs[j] = 0;
-        inns[j] = 0;
-      }
-      ics = 0;
-      cstack[ics] = 0;
-      active[0] = i+1;
-      incs[0] = 1;
-    }
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     #ifdef DEBUG
@@ -1343,6 +1344,7 @@ void matcha(const char * regex, const char * string,
     free(jumps);
     return;
   }
+  const int unanchored_search = (! anchored) && (tokens[0] != '*');
   // Set all tokens to be inactive, convert ? to * for simplicity.
   active[n_tokens] = EXIT_TOKEN;
   for (int j = 0; j < n_tokens; j++) {
@@ -1406,11 +1408,25 @@ void matcha(const char * regex, const char * string,
           (*starts)[n_found] = val; \
           (*ends)[n_found] = end; \
           n_found++; \
+          if (unanchored_search && (end > val)) { \
+            for (int index = 0; index < n_tokens; index++) { \
+              active[index] = EXIT_TOKEN; \
+              incs[index] = 0; \
+              inns[index] = 0; \
+            } \
+            ics = -1; \
+            ins = -1; \
+          } \
         } \
       } else { \
         if (in_stack[dest] == 0) { \
           si++; \
-          stack[si] = dest; \
+          int k = si; \
+          while ((k > 0) && (stack[k-1] > dest)) { \
+            stack[k] = stack[k-1]; \
+            k--; \
+          } \
+          stack[k] = dest; \
           in_stack[dest] = 1; \
         } \
         active[dest] = val; \
@@ -1458,6 +1474,14 @@ void matcha(const char * regex, const char * string,
       }
       }
     }
+    if (unanchored_search && (c != '\0') && (inns[0] == 0)) {
+      for (int j = ins; j >= 0; j--) nstack[j+1] = nstack[j];
+      ins++;
+      nstack[0] = 0;
+      active[0] = i+1;
+      inns[0] = 1;
+    }
+
     // Switch out the current stack with the next stack.
     //   switch stack of token indices
     temp = (void*) cstack; // store "current stack"
@@ -1469,14 +1493,6 @@ void matcha(const char * regex, const char * string,
     incs = inns; // set "in current stack"
     inns = (char*) temp; // set "in next stack"
     ins = -1; // reset the count of elements in "next stack"
-
-    // Restart at the next index if no tokens remain active.
-    if ((! anchored) && (ics < 0) && (c != '\0')) {
-      ics = 0;
-      cstack[ics] = 0;
-      active[0] = i+1;
-      incs[0] = 1;
-    }
 
     // If the just-parsed character was the end of the string, then break.
     if (c == '\0') {
@@ -1641,6 +1657,7 @@ void fmatcha(const char * regex, const char * path,
     fclose(file);
     return;
   }
+  const int unanchored_search = (! anchored) && (tokens[0] != '*');
   // Set all tokens to be inactive, convert ? to * for simplicity.
   active[n_tokens] = EXIT_TOKEN;
   for (int j = 0; j < n_tokens; j++) {
@@ -1713,11 +1730,25 @@ void fmatcha(const char * regex, const char * path,
           (*ends)[n_found] = end; \
           (*lines)[n_found] = lines_read; \
           n_found++; \
+          if (unanchored_search && (end > val)) { \
+            for (int index = 0; index < n_tokens; index++) { \
+              active[index] = EXIT_TOKEN; \
+              incs[index] = 0; \
+              inns[index] = 0; \
+            } \
+            ics = -1; \
+            ins = -1; \
+          } \
         } \
       } else { \
         if (in_stack[dest] == 0) { \
           si++; \
-          stack[si] = dest; \
+          int k = si; \
+          while ((k > 0) && (stack[k-1] > dest)) { \
+            stack[k] = stack[k-1]; \
+            k--; \
+          } \
+          stack[k] = dest; \
           in_stack[dest] = 1; \
         } \
         active[dest] = val; \
@@ -1775,6 +1806,14 @@ void fmatcha(const char * regex, const char * path,
       }
       }
     }
+    if (unanchored_search && (c != EOF) && (inns[0] == 0)) {
+      for (int j = ins; j >= 0; j--) nstack[j+1] = nstack[j];
+      ins++;
+      nstack[0] = 0;
+      active[0] = i+1;
+      inns[0] = 1;
+    }
+
     // Switch out the current stack with the next stack.
     //   switch stack of token indices
     temp = (void*) cstack; // store "current stack"
@@ -1786,14 +1825,6 @@ void fmatcha(const char * regex, const char * path,
     incs = inns; // set "in current stack"
     inns = (char*) temp; // set "in next stack"
     ins = -1; // reset the count of elements in "next stack"
-
-    // Restart at the next index if no tokens remain active.
-    if ((! anchored) && (ics < 0) && (c != EOF)) {
-      ics = 0;
-      cstack[ics] = 0;
-      active[0] = i+1;
-      incs[0] = 1;
-    }
 
     // Count new lines after processing so '\n' itself stays on its line.
     if (c == '\n') lines_read++;

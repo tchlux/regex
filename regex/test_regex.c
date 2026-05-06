@@ -650,10 +650,29 @@ int run_tests() {
 
   int start;
   int end;
+  char * demo_corpus =
+    "This browser demo runs the C regex engine through WebAssembly.\n\n"
+    "Try date to find the fate and feta of this token, or daata feata feate for grouped branches.\n"
+    "Try 2026-05-03 for a date-shaped value.\n"
+    "Try regex|wasm to see alternatives in the compiled graph.\n"
+    "Try [0123456789][0123456789][0123456789][0123456789] to mark a year.";
+
   match("abc", "xxabc", &start, &end);
   if ((start != 2) || (end != 5)) {
     printf("ERROR: Bad unanchored match returned by match.\n");
     return(32);
+  }
+
+  match(".w", demo_corpus, &start, &end);
+  if ((start != 7) || (end != 9)) {
+    printf("ERROR: Bad implicit search wildcard match returned by match.\n");
+    return(56);
+  }
+
+  match(".w", "xow", &start, &end);
+  if ((start != 1) || (end != 3)) {
+    printf("ERROR: Bad overlapping start discovery returned by match.\n");
+    return(57);
   }
 
   match("{.}abc", "abc", &start, &end);
@@ -860,6 +879,44 @@ int run_tests() {
   }
   free(starts);
 
+  matcha("w", demo_corpus, &n_matches, &starts, &ends);
+  if ((n_matches != 2) || (starts[0] != 8) || (ends[0] != 9) ||
+      (starts[1] != 207) || (ends[1] != 208)) {
+    printf("ERROR: Bad demo literal matches returned by matcha.\n");
+    return(58);
+  }
+  free(starts);
+
+  matcha("ow", demo_corpus, &n_matches, &starts, &ends);
+  if ((n_matches != 1) || (starts[0] != 7) || (ends[0] != 9)) {
+    printf("ERROR: Bad demo direct match returned by matcha.\n");
+    return(59);
+  }
+  free(starts);
+
+  matcha(".w", demo_corpus, &n_matches, &starts, &ends);
+  if ((n_matches != 2) || (starts[0] != 7) || (ends[0] != 9) ||
+      (starts[1] != 206) || (ends[1] != 208)) {
+    printf("ERROR: Bad demo implicit search matches returned by matcha.\n");
+    return(60);
+  }
+  free(starts);
+
+  matcha(".w", "xow xxow", &n_matches, &starts, &ends);
+  if ((n_matches != 2) || (starts[0] != 1) || (ends[0] != 3) ||
+      (starts[1] != 6) || (ends[1] != 8)) {
+    printf("ERROR: Bad overlapping start matches returned by matcha.\n");
+    return(61);
+  }
+  free(starts);
+
+  matcha("..w", "xxow", &n_matches, &starts, &ends);
+  if ((n_matches != 1) || (starts[0] != 1) || (ends[0] != 4)) {
+    printf("ERROR: Bad multi-token implicit search match returned by matcha.\n");
+    return(62);
+  }
+  free(starts);
+
   matcha("{.}abc", "abc abc", &n_matches, &starts, &ends);
   if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 3)) {
     printf("ERROR: Bad start-anchored matches returned by matcha.\n");
@@ -927,6 +984,24 @@ int run_tests() {
       (lines[2] != 9)) {
     printf("ERROR: Bad nonoverlapping matches returned by fmatcha.\n");
     return(23);
+  }
+  free(starts);
+
+  char * demo_path = "/tmp/regex_demo_search_test.txt";
+  FILE * demo_file = fopen(demo_path, "wb");
+  if (demo_file == NULL) {
+    printf("ERROR: Failed to create temporary demo search test file.\n");
+    return(63);
+  }
+  fputs(demo_corpus, demo_file);
+  fclose(demo_file);
+
+  fmatcha(".w", demo_path, &n_matches, &starts, &ends, &lines, 0.5);
+  remove(demo_path);
+  if ((n_matches != 2) || (starts[0] != 7) || (ends[0] != 9) ||
+      (starts[1] != 206) || (ends[1] != 208)) {
+    printf("ERROR: Bad demo implicit search matches returned by fmatcha.\n");
+    return(64);
   }
   free(starts);
 
