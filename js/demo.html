@@ -669,19 +669,19 @@ Try [0123456789][0123456789][0123456789][0123456789] to mark a year.</div>
 <section id="docsPanel" class="overlay" hidden>
   <div class="docs-body">
     <h2>tlux-regex</h2>
-    <p>Patterns search through the current text; use \^ for the start and \$ for the end.</p>
+    <p>Patterns search through the current text; use {.} at the beginning or end to match file boundaries.</p>
     <div class="docs-grid">
-      <div class="docs-row"><div class="docs-key">abc</div><div>literal characters match themselves in order</div><div class="docs-tokens" data-regex="abc"></div></div>
-      <div class="docs-row"><div class="docs-key">a.d</div><div>dot matches any one character</div><div class="docs-tokens" data-regex="a.d"></div></div>
+      <div class="docs-row"><div class="docs-key">abc</div><div>literal bytes match themselves in order</div><div class="docs-tokens" data-regex="abc"></div></div>
+      <div class="docs-row"><div class="docs-key">a.d</div><div>dot matches any one byte</div><div class="docs-tokens" data-regex="a.d"></div></div>
       <div class="docs-row"><div class="docs-key">ab|cd</div><div>the branch applies to neighboring tokens, then rejoins the sequence</div><div class="docs-tokens" data-regex="ab|cd"></div></div>
       <div class="docs-row"><div class="docs-key">a[bc]d</div><div>shorthand for branches between a collection of single tokens</div><div class="docs-tokens" data-regex="a[bc]d"></div></div>
       <div class="docs-row"><div class="docs-key">a(bc)d</div><div>parentheses group a sequence so controls can apply to it</div><div class="docs-tokens" data-regex="a(bc)d"></div></div>
-      <div class="docs-row"><div class="docs-key">a{bc}d</div><div>braces negate a grouped expression</div><div class="docs-tokens" data-regex="a{bc}d"></div></div>
+      <div class="docs-row"><div class="docs-key">a{bc}d</div><div>braces negate a token or grouped expression</div><div class="docs-tokens" data-regex="a{bc}d"></div></div>
       <div class="docs-row"><div class="docs-key">x?</div><div>the preceding token or token group may be skipped</div><div class="docs-tokens" data-regex="x?"></div></div>
       <div class="docs-row"><div class="docs-key">x*</div><div>the preceding token or token group may appear zero or many times</div><div class="docs-tokens" data-regex="x*"></div></div>
-      <div class="docs-row"><div class="docs-key">\^abc</div><div>leading start-of-text marker</div><div class="docs-tokens" data-regex="\^abc"></div></div>
-      <div class="docs-row"><div class="docs-key">abc\$</div><div>match only at the end of the text</div><div class="docs-tokens" data-regex="abc\$"></div></div>
-      <div class="docs-row"><div class="docs-key">\shortcut</div><div>inject a saved shortcut as one grouped expression</div><div class="docs-tokens" data-regex="\letters"></div></div>
+      <div class="docs-row"><div class="docs-key">{.}abc</div><div>match only at the beginning of a file</div><div class="docs-tokens" data-regex="{.}abc"></div></div>
+      <div class="docs-row"><div class="docs-key">abc{.}</div><div>match only at the end of a file</div><div class="docs-tokens" data-regex="abc{.}"></div></div>
+      <div class="docs-row"><div class="docs-key">\letter</div><div>saved shortcuts inject one grouped expression</div><div class="docs-tokens" data-regex="\letter"></div></div>
     </div>
   </div>
 </section>
@@ -712,7 +712,7 @@ const DEFAULT_SHORTCUTS = [
   { name: "d", tokens: `[${DIGITS}]` },
   { name: "a", tokens: `[${LETTERS}]` },
   { name: "w", tokens: `[_${DIGITS}${LETTERS}]` },
-  { name: "letters", tokens: `[${LETTERS}]` },
+  { name: "letter", tokens: `[${LETTERS}]` },
 ];
 const regexInput = document.querySelector("#regex");
 const docsButton = document.querySelector("#docsButton");
@@ -948,16 +948,22 @@ function deleteShortcutButton(row) {
 
 function drawDocs() {
   const colors = tokenColors;
-  document.querySelectorAll(".docs-tokens").forEach(node => {
-    try {
-      const compiled = engine.compile(expandShortcuts(node.dataset.regex, [], false));
-      tokenColors = colorMap(compiled);
-      node.replaceChildren(...renderUnits(graphUnits(compiled, groupModel(compiled)), compiled));
-    } catch (_) {
-      node.replaceChildren();
-    }
-  });
-  tokenColors = colors;
+  const savedShortcuts = shortcuts;
+  shortcuts = DEFAULT_SHORTCUTS.map(row => ({ ...row }));
+  try {
+    document.querySelectorAll(".docs-tokens").forEach(node => {
+      try {
+        const compiled = engine.compile(expandShortcuts(node.dataset.regex, [], false));
+        tokenColors = colorMap(compiled);
+        node.replaceChildren(...renderUnits(graphUnits(compiled, groupModel(compiled)), compiled));
+      } catch (_) {
+        node.replaceChildren();
+      }
+    });
+  } finally {
+    tokenColors = colors;
+    shortcuts = savedShortcuts;
+  }
 }
 
 function shortcutInput(name, value, label) {
@@ -1188,24 +1194,24 @@ function scheduleBranchConnectors() {
 }
 
 function drawBranchConnectors() {
-  graphEl.querySelector(".branch-connectors")?.remove();
+  graphEl.querySelectorAll(".branch-connectors").forEach(node => node.remove());
   if (displayMode != "graph") return;
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.classList.add("branch-connectors");
-  graphEl.prepend(svg);
-  const graphBox = graphEl.getBoundingClientRect();
-  svg.setAttribute("width", graphEl.scrollWidth);
-  svg.setAttribute("height", graphEl.scrollHeight);
   graphEl.querySelectorAll(".branch-node[data-branch-source]").forEach(branch => {
     const source = graphEl.querySelector(`[data-token="${branch.dataset.branchSource}"]`);
     const target = branch.querySelectorAll(".branch-row")[1]?.querySelector(".branch-enter");
     if (!source || !target) return;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.classList.add("branch-connectors");
+    branch.prepend(svg);
+    const branchBox = branch.getBoundingClientRect();
     const sourceBox = source.getBoundingClientRect();
     const targetBox = target.getBoundingClientRect();
-    const x1 = sourceBox.left + sourceBox.width / 2 - graphBox.left + graphEl.scrollLeft;
-    const y1 = sourceBox.bottom + 6 - graphBox.top + graphEl.scrollTop;
-    const x2 = targetBox.left - 12 - graphBox.left + graphEl.scrollLeft;
-    const y2 = targetBox.top + targetBox.height / 2 + 0.5 - graphBox.top + graphEl.scrollTop;
+    const clipBox = (branch.closest(".group-body") || graphEl).getBoundingClientRect();
+    const x1 = sourceBox.left + sourceBox.width / 2 - branchBox.left;
+    const y1 = sourceBox.bottom + 6 - branchBox.top;
+    const x2 = targetBox.left - 12 - branchBox.left;
+    const y2 = Math.min(targetBox.top + targetBox.height / 2 + 0.5, clipBox.bottom - 8) - branchBox.top;
+    if (y2 <= y1) return;
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", `M${x1} ${y1}V${y2}H${x2}`);
     svg.append(path);
@@ -1279,6 +1285,21 @@ function graphUnitsIn(compiled, model, start, end, parent) {
   const children = model.children.get(parent) || [];
   for (let i = start; i < end;) {
     const child = children.find(group => group.pos == i);
+    if (isControl(compiled, i) && compiled.tokens[i].text == "|" && !(child && child.mod != "|")) {
+      units.push({ control: true, branch: false, label: `${i}`, tokens: [i], rows: [[i]] });
+      const left = branchPath(compiled, compiled.jumps[i], compiled.jumpf[i]);
+      const join = setStart(compiled, Math.min(left.end == compiled.jumpf[i] ? end : left.end, end));
+      const right = pathTo(compiled, compiled.jumpf[i], join);
+      left.tokens = left.tokens.filter(token => token < join);
+      right.tokens = right.tokens.filter(token => token < join);
+      const tokens = [...left.tokens, ...right.tokens];
+      units.push({ branch: true, source: i, label: `${label(left.tokens)}|${label(right.tokens)}`, tokens, rows: [
+        graphPathUnits(compiled, model, left.tokens, parent),
+        graphPathUnits(compiled, model, right.tokens, parent),
+      ] });
+      i = join;
+      continue;
+    }
     if (child) {
       if (child.control != null) units.push({ control: true, branch: false, label: `${child.control}`, tokens: [child.control], rows: [[child.control]] });
       units.push({ group: true, negate: child.kind == "{", skip: child.mod == "?", repeat: child.mod == "*", units: graphUnitsIn(compiled, model, child.start, child.end, child.id) });
@@ -1287,18 +1308,8 @@ function graphUnitsIn(compiled, model, start, end, parent) {
     }
     if (isControl(compiled, i)) {
       units.push({ control: true, branch: false, label: `${i}`, tokens: [i], rows: [[i]] });
-      if (compiled.tokens[i].text == "|") {
-        const left = branchPath(compiled, compiled.jumps[i], compiled.jumpf[i]);
-        const join = setStart(compiled, Math.min(left.end == compiled.jumpf[i] ? end : left.end, end));
-        const right = pathTo(compiled, compiled.jumpf[i], join);
-        left.tokens = left.tokens.filter(token => token < join);
-        right.tokens = right.tokens.filter(token => token < join);
-        const tokens = [...left.tokens, ...right.tokens];
-        units.push({ branch: true, source: i, label: `${label(left.tokens)}|${label(right.tokens)}`, tokens, rows: [
-          graphPathUnits(compiled, model, left.tokens, parent),
-          graphPathUnits(compiled, model, right.tokens, parent),
-        ] });
-        i = join;
+      if (compiled.jumpi[i] == START_ANCHOR) {
+        i++;
       } else {
         const affected = affectedGroup(compiled, model, i, parent);
         units.push(affected);
@@ -1323,10 +1334,15 @@ function graphPathUnits(compiled, model, tokens, parent) {
   const allowed = new Set(tokens), children = model.children.get(parent) || [], units = [];
   for (let i = 0; i < tokens.length;) {
     const index = tokens[i];
-    const child = children.find(group => group.pos == index && groupTokenList(group).every(token => allowed.has(token)));
+    let shifted = 0;
+    const child = children.find(group => group.pos == index && groupTokenList(group).every(token => allowed.has(token)))
+      || children.find(group => {
+        shifted = index - group.start;
+        return shifted > 0 && groupTokenList(group).every(token => allowed.has(token + shifted));
+      });
     if (child) {
       if (child.control != null) units.push({ control: true, branch: false, label: `${child.control}`, tokens: [child.control], rows: [[child.control]] });
-      units.push({ group: true, negate: child.kind == "{", skip: child.mod == "?", repeat: child.mod == "*", units: graphUnitsIn(compiled, model, child.start, child.end, child.id) });
+      units.push({ group: true, negate: child.kind == "{", skip: child.mod == "?", repeat: child.mod == "*", units: graphUnitsIn(compiled, model, child.start + shifted, child.end + shifted, child.id) });
       i += groupTokenList(child).length;
     } else {
       units.push({ branch: false, label: `${index}`, tokens: [index], rows: [[index]], control: isControl(compiled, index) });
@@ -1346,7 +1362,7 @@ function groupTokenList(group) {
 function groupModel(compiled) {
   const parsed = parseGroups(compiled.regex);
   markGroupTokens(compiled.regex, parsed, compiled.tokens.length);
-  const groups = parsed.filter(group => group.start < group.end && !startAnchorGroup(compiled, group));
+  const groups = parsed.filter(group => group.start < group.end);
   const byId = new Map(groups.map(group => [group.id, group]));
   groups.forEach(group => {
     group.parent = nearestExplicit(parsed, group.parent);
@@ -1360,10 +1376,6 @@ function groupModel(compiled) {
   });
   children.forEach(items => items.sort((a, b) => a.pos - b.pos || a.id - b.id));
   return { groups, children };
-}
-
-function startAnchorGroup(compiled, group) {
-  return group.kind == "{" && group.end == group.start + 1 && compiled.jumpi[group.start] == START_ANCHOR;
 }
 
 function parseGroups(regex) {
@@ -1395,14 +1407,14 @@ function markGroupTokens(regex, groups, limit) {
   for (let i = 0; i < regex.length; i++) {
     const c = regex[i], group = groups.byOpen.get(i);
     if (group) {
-      if ("*?|".includes(group.mod)) group.control = token++;
+      if ("*?".includes(group.mod)) group.control = token++;
       group.start = token;
       stack.push(group);
     } else if (byClose.has(i)) {
       const done = byClose.get(i);
       done.end = token;
       stack.pop();
-      if ("*?|".includes(done.mod)) i++;
+      if ("*?".includes(done.mod)) i++;
     } else if (c == "[") {
       const close = regex.indexOf("]", i + 1);
       if ("*?|".includes(regex[close + 1] || "")) token++;
@@ -1789,7 +1801,7 @@ function markerBox(label, marker) {
 
 function tokenEl(compiled, index, tag = "div") {
   const token = compiled.tokens[index];
-  const text = compiled.jumpi[index] == START_ANCHOR ? "^" : token.byte == 32 ? "" : token.byte < 128 ? token.text : token.byte.toString(16).padStart(2, "0");
+  const text = compiled.jumpi[index] == START_ANCHOR ? "." : token.byte == 32 ? "" : token.byte < 128 ? token.text : token.byte.toString(16).padStart(2, "0");
   const node = el(tag, `alt${token.text == " " ? " space-token" : ""}`, text, index);
   if (compiled.tokens[index].text == " ") node.title = "space";
   return node;
