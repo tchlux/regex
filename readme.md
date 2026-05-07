@@ -106,17 +106,21 @@ python3 regex.py "<search-pattern>" "<path-pattern-1>" ["<path-pattern-2>"] [...
 //     Caller must free returned "labels", "groups", and "group_spans" pointers.
 //
 //   void matcha(regex, string, n, starts, ends)
-//     Find all nonoverlapping matches in a null-terminated string.
+//     Find aggregate matches in a null-terminated string.
+//     Set *n > 0 before calling to cap returned matches; *n <= 0 uses 1024.
 //     Caller must free "starts"; do not free "ends".
 //
 //   void fmatcha(regex, path, n, starts, ends, lines, min_ascii_ratio)
-//     Find all nonoverlapping matches in a file at a given path.
+//     Find aggregate matches in a file at a given path.
+//     Set *n > 0 before calling to cap returned matches; *n <= 0 uses 1024.
 //     Caller must free "starts"; do not free "ends" or "lines".
 // 
 //
 // BEHAVIOR
 //  match, matcha, and fmatcha search past leading text. Begin a regex
-//  with "{.}" to match only from the start. Matches are first-discovered, not greedy longest.
+//  with "{.}" to match only from the start. match() is first-discovered, not
+//  greedy longest. matcha() and fmatcha() may return overlapping starts; when
+//  the same start is discovered again, the longest discovered end is kept.
 //  The "|" operator applies to the neighboring token (group) unless
 //  explicit groups are used. NUL terminates string APIs. Nullable
 //  matcha patterns may return zero-length and overlapping-looking

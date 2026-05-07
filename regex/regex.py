@@ -608,14 +608,14 @@ def match(regex, string, group=None, **translate_kwargs):
     return label(regex_text, original_string[start_index:end_index], group=group, case_sensitive=True)
 
 # Get all matches for a regex.
-def matcha(regex, string, **translate_kwargs):
+def matcha(regex, string, max_matches=1024, **translate_kwargs):
     # Use a C utility to scal the file for all matches.
     import ctypes
     # Translate the regular expression to expected syntax.
     regex = translate_regex(regex, **translate_kwargs)
     # Call the C utillity.
     #   initialize memory storage for the start and end of a match
-    n = ctypes.c_int()
+    n = ctypes.c_int(max_matches)
     starts = ctypes.c_void_p()
     ends = ctypes.c_void_p()
     #   convert strings into character arrays
@@ -647,9 +647,9 @@ def matcha(regex, string, **translate_kwargs):
     return list(starts), list(ends)
 
 
-# Given a path to a file, search for all nonoverlapping matches in the
-# file and return the count of number of matches and a summary string.
-def fmatcha(path, regex, ascii_ratio=0.7, **translate_kwargs):
+# Given a path to a file, search for aggregate matches in the file and
+# return the count of number of matches and a summary string.
+def fmatcha(path, regex, max_matches=1024, ascii_ratio=0.7, **translate_kwargs):
     # Make sure the file exists.
     if (not os.path.exists(path)): return path, 0, ""
     # Use a C utility to scal the file for all matches.
@@ -658,7 +658,7 @@ def fmatcha(path, regex, ascii_ratio=0.7, **translate_kwargs):
     regex = translate_regex(regex, **translate_kwargs)
     # Call the C utillity.
     #   initialize memory storage for the start and end of a match
-    n = ctypes.c_int()
+    n = ctypes.c_int(max_matches)
     starts = ctypes.c_void_p()
     ends = ctypes.c_void_p()
     lines = ctypes.c_void_p()
@@ -721,7 +721,7 @@ def fmatcha(path, regex, ascii_ratio=0.7, **translate_kwargs):
 
 
 # Do a fast regular expression search over files that match a given
-# pattern. Find all nonoverlapping matches in the files and print
+# pattern. Find aggregate matches in the files and print
 # all matching patterns, their files, and their locations.
 def frex(regex, *path_patterns, curdir=".", recursive=True, 
          parallel=True, **translate_kwargs):

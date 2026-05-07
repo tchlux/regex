@@ -729,6 +729,7 @@ int run_tests() {
     return(37);
   }
 
+  n_matches = 0;
   matcha("a*", "", &n_matches, &starts, &ends);
   if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 0)) {
     printf("ERROR: Bad empty-string match returned by matcha.\n");
@@ -866,12 +867,14 @@ int run_tests() {
     return(20);
   }
 
+  n_matches = 0;
   matcha("a", "", &n_matches, &starts, &ends);
   if (n_matches != 0) {
     printf("ERROR: Bad empty-string no-match returned by matcha.\n");
     return(21);
   }
 
+  n_matches = 0;
   matcha("abc", "xxabc", &n_matches, &starts, &ends);
   if ((n_matches != 1) || (starts[0] != 2) || (ends[0] != 5)) {
     printf("ERROR: Bad unanchored matches returned by matcha.\n");
@@ -879,6 +882,7 @@ int run_tests() {
   }
   free(starts);
 
+  n_matches = 0;
   matcha("w", demo_corpus, &n_matches, &starts, &ends);
   if ((n_matches != 2) || (starts[0] != 8) || (ends[0] != 9) ||
       (starts[1] != 207) || (ends[1] != 208)) {
@@ -887,6 +891,7 @@ int run_tests() {
   }
   free(starts);
 
+  n_matches = 0;
   matcha("ow", demo_corpus, &n_matches, &starts, &ends);
   if ((n_matches != 1) || (starts[0] != 7) || (ends[0] != 9)) {
     printf("ERROR: Bad demo direct match returned by matcha.\n");
@@ -894,6 +899,7 @@ int run_tests() {
   }
   free(starts);
 
+  n_matches = 0;
   matcha(".w", demo_corpus, &n_matches, &starts, &ends);
   if ((n_matches != 2) || (starts[0] != 7) || (ends[0] != 9) ||
       (starts[1] != 206) || (ends[1] != 208)) {
@@ -902,6 +908,7 @@ int run_tests() {
   }
   free(starts);
 
+  n_matches = 0;
   matcha(".w", "xow xxow", &n_matches, &starts, &ends);
   if ((n_matches != 2) || (starts[0] != 1) || (ends[0] != 3) ||
       (starts[1] != 6) || (ends[1] != 8)) {
@@ -910,6 +917,7 @@ int run_tests() {
   }
   free(starts);
 
+  n_matches = 0;
   matcha("..w", "xxow", &n_matches, &starts, &ends);
   if ((n_matches != 1) || (starts[0] != 1) || (ends[0] != 4)) {
     printf("ERROR: Bad multi-token implicit search match returned by matcha.\n");
@@ -917,6 +925,7 @@ int run_tests() {
   }
   free(starts);
 
+  n_matches = 0;
   matcha("{.}abc", "abc abc", &n_matches, &starts, &ends);
   if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 3)) {
     printf("ERROR: Bad start-anchored matches returned by matcha.\n");
@@ -924,12 +933,14 @@ int run_tests() {
   }
   free(starts);
 
+  n_matches = 0;
   matcha("{.}abc", "xxabc", &n_matches, &starts, &ends);
   if (n_matches != 0) {
     printf("ERROR: Bad start-anchored no-match returned by matcha.\n");
     return(43);
   }
 
+  n_matches = 0;
   matcha("abc{.}", "xxabc", &n_matches, &starts, &ends);
   if ((n_matches != 1) || (starts[0] != 2) || (ends[0] != 5)) {
     printf("ERROR: Bad end-anchored matches returned by matcha.\n");
@@ -937,12 +948,14 @@ int run_tests() {
   }
   free(starts);
 
+  n_matches = 0;
   matcha("abc{.}", "abcxx", &n_matches, &starts, &ends);
   if (n_matches != 0) {
     printf("ERROR: Bad end-anchored no-match returned by matcha.\n");
     return(45);
   }
 
+  n_matches = 0;
   matcha("a|a", "baa", &n_matches, &starts, &ends);
   if ((n_matches != 2) || (starts[0] != 1) || (ends[0] != 2) ||
       (starts[1] != 2) || (ends[1] != 3)) {
@@ -951,23 +964,54 @@ int run_tests() {
   }
   free(starts);
 
+  n_matches = 0;
   matcha("aa", "aaaa", &n_matches, &starts, &ends);
-  if ((n_matches != 2) || (starts[0] != 0) || (ends[0] != 2) ||
-      (starts[1] != 2) || (ends[1] != 4)) {
-    printf("ERROR: Bad nonoverlapping matches returned by matcha.\n");
+  if ((n_matches != 3) || (starts[0] != 0) || (ends[0] != 2) ||
+      (starts[1] != 1) || (ends[1] != 3) ||
+      (starts[2] != 2) || (ends[2] != 4)) {
+    printf("ERROR: Bad overlapping matches returned by matcha.\n");
     return(21);
   }
   free(starts);
 
+  n_matches = 0;
   matcha("a?", "a", &n_matches, &starts, &ends);
-  if ((n_matches != 3) || (starts[0] != 0) || (ends[0] != 0) ||
-      (starts[1] != 0) || (ends[1] != 1) ||
-      (starts[2] != 1) || (ends[2] != 1)) {
-    printf("ERROR: Bad deduplicated matches returned by matcha.\n");
+  if ((n_matches != 2) || (starts[0] != 0) || (ends[0] != 1) ||
+      (starts[1] != 1) || (ends[1] != 1)) {
+    printf("ERROR: Bad longest optional matches returned by matcha.\n");
     return(22);
   }
   free(starts);
 
+  n_matches = 0;
+  matcha("x.*a", "xaaa", &n_matches, &starts, &ends);
+  if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 4)) {
+    printf("ERROR: Bad longest wildcard match returned by matcha.\n");
+    return(65);
+  }
+  free(starts);
+
+  n_matches = 10;
+  matcha("a*", "aaa", &n_matches, &starts, &ends);
+  if ((n_matches != 4) || (starts[0] != 0) || (ends[0] != 0) ||
+      (starts[1] != 1) || (ends[1] != 1) ||
+      (starts[2] != 2) || (ends[2] != 2) ||
+      (starts[3] != 3) || (ends[3] != 3)) {
+    printf("ERROR: Bad repeated empty matches returned by matcha.\n");
+    return(66);
+  }
+  free(starts);
+
+  n_matches = 2;
+  matcha("a", "aaaa", &n_matches, &starts, &ends);
+  if ((n_matches != 2) || (starts[0] != 0) || (ends[0] != 1) ||
+      (starts[1] != 1) || (ends[1] != 2)) {
+    printf("ERROR: Bad capped matches returned by matcha.\n");
+    return(67);
+  }
+  free(starts);
+
+  n_matches = 0;
   matcha("a( |(_))[bc]", "a b|a_c|a x", &n_matches, &starts, &ends);
   if ((n_matches != 2) || (starts[0] != 0) || (ends[0] != 3) ||
       (starts[1] != 4) || (ends[1] != 7)) {
@@ -977,13 +1021,49 @@ int run_tests() {
   free(starts);
 
   int * lines;
+  n_matches = 0;
   fmatcha("hello", "regex/test.txt", &n_matches, &starts, &ends, &lines, 0.5);
   if ((n_matches != 3) || (starts[0] != 13) || (ends[0] != 18) ||
       (lines[0] != 3) || (starts[1] != 69) || (ends[1] != 74) ||
       (lines[1] != 8) || (starts[2] != 75) || (ends[2] != 80) ||
       (lines[2] != 9)) {
-    printf("ERROR: Bad nonoverlapping matches returned by fmatcha.\n");
+    printf("ERROR: Bad literal matches returned by fmatcha.\n");
     return(23);
+  }
+  free(starts);
+
+  char * longest_path = "/tmp/regex_longest_test.txt";
+  FILE * longest_file = fopen(longest_path, "wb");
+  if (longest_file == NULL) {
+    printf("ERROR: Failed to create temporary longest-match test file.\n");
+    return(68);
+  }
+  fputs("xaaa", longest_file);
+  fclose(longest_file);
+
+  n_matches = 0;
+  fmatcha("x.*a", longest_path, &n_matches, &starts, &ends, &lines, 0.5);
+  if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 4) || (lines[0] != 1)) {
+    printf("ERROR: Bad longest wildcard match returned by fmatcha.\n");
+    return(69);
+  }
+  free(starts);
+
+  longest_file = fopen(longest_path, "wb");
+  if (longest_file == NULL) {
+    printf("ERROR: Failed to update temporary longest-match test file.\n");
+    return(70);
+  }
+  fputs("aaaa", longest_file);
+  fclose(longest_file);
+
+  n_matches = 2;
+  fmatcha("a", longest_path, &n_matches, &starts, &ends, &lines, 0.5);
+  remove(longest_path);
+  if ((n_matches != 2) || (starts[0] != 0) || (ends[0] != 1) ||
+      (starts[1] != 1) || (ends[1] != 2)) {
+    printf("ERROR: Bad capped matches returned by fmatcha.\n");
+    return(71);
   }
   free(starts);
 
@@ -996,6 +1076,7 @@ int run_tests() {
   fputs(demo_corpus, demo_file);
   fclose(demo_file);
 
+  n_matches = 0;
   fmatcha(".w", demo_path, &n_matches, &starts, &ends, &lines, 0.5);
   remove(demo_path);
   if ((n_matches != 2) || (starts[0] != 7) || (ends[0] != 9) ||
@@ -1014,6 +1095,7 @@ int run_tests() {
   fputs("xxabc", anchor_file);
   fclose(anchor_file);
 
+  n_matches = 0;
   fmatcha("{.}xx", anchor_path, &n_matches, &starts, &ends, &lines, 0.5);
   if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 2)) {
     printf("ERROR: Bad start-anchored matches returned by fmatcha.\n");
@@ -1021,12 +1103,14 @@ int run_tests() {
   }
   free(starts);
 
+  n_matches = 0;
   fmatcha("{.}abc", anchor_path, &n_matches, &starts, &ends, &lines, 0.5);
   if (n_matches != 0) {
     printf("ERROR: Bad start-anchored no-match returned by fmatcha.\n");
     return(48);
   }
 
+  n_matches = 0;
   fmatcha("abc{.}", anchor_path, &n_matches, &starts, &ends, &lines, 0.5);
   remove(anchor_path);
   if ((n_matches != 1) || (starts[0] != 2) || (ends[0] != 5)) {
@@ -1048,6 +1132,7 @@ int run_tests() {
   starts = NULL;
   ends = NULL;
   lines = NULL;
+  n_matches = 0;
   fmatcha(".*a", ascii_ratio_path, &n_matches, &starts, &ends, &lines, 0.5);
   remove(ascii_ratio_path);
   if (n_matches != -3) {
@@ -1058,6 +1143,7 @@ int run_tests() {
   starts = (int*) 1;
   ends = (int*) 1;
   lines = (int*) 1;
+  n_matches = 0;
   fmatcha("a", "/tmp/regex_file_does_not_exist", &n_matches, &starts, &ends, &lines, 0.5);
   if ((n_matches != -2) || (starts != NULL) || (ends != NULL) || (lines != NULL)) {
     printf("ERROR: Bad file-open failure handling returned by fmatcha.\n");
@@ -1073,6 +1159,7 @@ int run_tests() {
   fputc(0xE9, high_byte_file);
   fclose(high_byte_file);
   char high_byte_regex[] = {(char) 0xE9, '\0'};
+  n_matches = 0;
   fmatcha(high_byte_regex, high_byte_path, &n_matches, &starts, &ends, &lines, 0.0);
   remove(high_byte_path);
   if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 1)) {
@@ -1089,12 +1176,14 @@ int run_tests() {
   }
   fputs("a\nb", line_file);
   fclose(line_file);
+  n_matches = 0;
   fmatcha("\n", line_path, &n_matches, &starts, &ends, &lines, 0.5);
   if ((n_matches != 1) || (starts[0] != 1) || (ends[0] != 2) || (lines[0] != 1)) {
     printf("ERROR: Bad newline line handling returned by fmatcha.\n");
     return(30);
   }
   free(starts);
+  n_matches = 0;
   fmatcha("a\nb", line_path, &n_matches, &starts, &ends, &lines, 0.5);
   remove(line_path);
   if ((n_matches != 1) || (starts[0] != 0) || (ends[0] != 3) || (lines[0] != 2)) {

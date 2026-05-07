@@ -41,6 +41,7 @@ export class Regex {
   }
 
   matcha(regex, string, options = {}) {
+    const { maxMatches = 1024 } = options;
     const pattern = this.translate(regex, options);
     return this.#withStrings(pattern, string, (re, text) => {
       const nPtr = this.module._malloc(4);
@@ -48,6 +49,7 @@ export class Regex {
       const endsPtr = this.module._malloc(4);
       let n, starts, ends;
       try {
+        this.module.HEAP32[nPtr >> 2] = maxMatches;
         this.module._matcha(re, text, nPtr, startsPtr, endsPtr);
         n = this.#i32(nPtr);
         starts = this.#i32(startsPtr);

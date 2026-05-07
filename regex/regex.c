@@ -33,17 +33,21 @@
 //     Caller must free returned "labels", "groups", and "group_spans" pointers.
 //
 //   void matcha(regex, string, n, starts, ends)
-//     Find all nonoverlapping matches in a null-terminated string.
+//     Find aggregate matches in a null-terminated string.
+//     Set *n > 0 before calling to cap returned matches; *n <= 0 uses 1024.
 //     Caller must free "starts"; do not free "ends".
 //
 //   void fmatcha(regex, path, n, starts, ends, lines, min_ascii_ratio)
-//     Find all nonoverlapping matches in a file at a given path.
+//     Find aggregate matches in a file at a given path.
+//     Set *n > 0 before calling to cap returned matches; *n <= 0 uses 1024.
 //     Caller must free "starts"; do not free "ends" or "lines".
 // 
 //
 // BEHAVIOR
 //  match, matcha, and fmatcha search past leading text. Begin a regex
-//  with "{.}" to match only from the start. Matches are first-discovered, not greedy longest.
+//  with "{.}" to match only from the start. match() is first-discovered, not
+//  greedy longest. matcha() and fmatcha() may return overlapping starts; when
+//  the same start is discovered again, the longest discovered end is kept.
 //  The "|" operator applies to the neighboring token (group) unless
 //  explicit groups are used. NUL terminates string APIs. Nullable
 //  matcha patterns may return zero-length and overlapping-looking
@@ -137,6 +141,8 @@
 //      ^^ 2^25 = 32MB = 33554432 bytes
 #define INITIAL_FOUND_SIZE 4
 //      ^^ default size of the arrays that store all regex matches
+#define DEFAULT_MAX_MATCHES 1024
+//      ^^ default cap for matcha and fmatcha returned matches
 
 //  Name:
 //    frex  -- fast regular expressions (frexi for case insensitive)
@@ -1273,10 +1279,11 @@ int label(const char * regex, const char * string, int ** labels,
   return LABEL_NO_MATCH_ERROR;
 }
 
-// Find all nonoverlapping matches of a regular expression in a string.
+// Find aggregate matches of a regular expression in a string.
 // Return arrays of the starts and ends of matches.
 void matcha(const char * regex, const char * string,
             int * n, int ** starts, int ** ends) {
+  const int max_matches = ((*n) > 0) ? (*n) : DEFAULT_MAX_MATCHES;
   const int anchored = _start_anchor(regex);
   if (anchored) regex += 3;
   // Count the number of tokens and groups in this regular expression.
@@ -1363,6 +1370,7 @@ void matcha(const char * regex, const char * string,
   int ics = 0; // index in current stack
   int ins = -1; // index in next stack
   int dest; // index of next token (for jump)
+  int done = 0; // stop scanning after the match cap is reached
   void * temp; // temporary pointer (used for transferring nstack to cstack)
   cstack[ics] = 0; // set the first element in stack to '0'
   active[0] = 0; // set the start index of the first token
@@ -1382,11 +1390,18 @@ void matcha(const char * regex, const char * string,
         const int end = (jumpi[j] == START_ANCHOR) ? i : \
                         (((ct == '.') && (! jumpi[j]) && (c == '\0')) ? i : \
                         (((jumpi[j]) || (ct != '*')) ? i+1 : i)); \
-        if ((n_found == 0) || ((*starts)[n_found-1] != val) || ((*ends)[n_found-1] != end)) { \
+        int found_index = EXIT_TOKEN; \
+        for (int index = 0; index < n_found; index++) { \
+          if ((*starts)[index] == val) { found_index = index; break; } \
+        } \
+        if (found_index != EXIT_TOKEN) { \
+          if ((*ends)[found_index] < end) (*ends)[found_index] = end; \
+        } else if (n_found < max_matches) { \
           (*n)++; \
           if (n_found >= s_found) { \
             if (s_found == 0) s_found = INITIAL_FOUND_SIZE; \
             else s_found = 2*s_found; \
+            if (s_found > max_matches) s_found = max_matches; \
             int * new_starts = malloc(2 * s_found * sizeof(int)); \
             if (new_starts == NULL) { \
               (*n) = REGEX_MEMORY_ERROR; \
@@ -1408,15 +1423,8 @@ void matcha(const char * regex, const char * string,
           (*starts)[n_found] = val; \
           (*ends)[n_found] = end; \
           n_found++; \
-          if (unanchored_search && (end > val)) { \
-            for (int index = 0; index < n_tokens; index++) { \
-              active[index] = EXIT_TOKEN; \
-              incs[index] = 0; \
-              inns[index] = 0; \
-            } \
-            ics = -1; \
-            ins = -1; \
-          } \
+        } else { \
+          done = 1; \
         } \
       } else { \
         if (in_stack[dest] == 0) { \
@@ -1439,7 +1447,7 @@ void matcha(const char * regex, const char * string,
     // Continue popping active elements from the current stack and
     // checking them for a match and jump conditions, add next tokens
     // to the next stack.
-    while (ics >= 0) {
+    while ((ics >= 0) && (! done)) {
       // Pop next token to check from the stack.
       const int j = cstack[ics];
       ics--;
@@ -1474,6 +1482,7 @@ void matcha(const char * regex, const char * string,
       }
       }
     }
+    if (done) break;
     if (unanchored_search && (c != '\0') && (inns[0] == 0)) {
       for (int j = ins; j >= 0; j--) nstack[j+1] = nstack[j];
       ins++;
@@ -1511,7 +1520,7 @@ void matcha(const char * regex, const char * string,
     (*ends) = NULL;
   // Re-allocate the output arrays to be the exact size of the number of matches.
   } else {
-    if (n_found < s_found) {
+    if ((n_found < s_found) && (n_found > 0)) {
       s_found = n_found;
       int * new_starts = malloc(2 * s_found * sizeof(int));
       if (new_starts == NULL) {
@@ -1536,11 +1545,12 @@ void matcha(const char * regex, const char * string,
 
 
 
-// Find all nonoverlapping matches of a regular expression in a file
+// Find aggregate matches of a regular expression in a file
 // at a given path. Return arrays of the starts, ends, and line numbers.
 void fmatcha(const char * regex, const char * path,
              int * n, int ** starts, int ** ends, int ** lines,
              float min_ascii_ratio) {
+  const int max_matches = ((*n) > 0) ? (*n) : DEFAULT_MAX_MATCHES;
 
   // Initialize output pointers so error paths return a known state.
   (*starts) = NULL;
@@ -1676,6 +1686,7 @@ void fmatcha(const char * regex, const char * path,
   int ics = 0; // index in current stack
   int ins = -1; // index in next stack
   int dest; // index of next token (for jump)
+  int done = 0; // stop scanning after the match cap is reached
   void * temp; // temporary pointer (used for transferring nstack to cstack)
   cstack[ics] = 0; // set the first element in stack to '0'
   active[0] = 0; // set the start index of the first token
@@ -1697,11 +1708,21 @@ void fmatcha(const char * regex, const char * path,
         const int end = (jumpi[j] == START_ANCHOR) ? i : \
                         (((ct == '.') && (! jumpi[j]) && (c == EOF)) ? i : \
                         (((jumpi[j]) || (ct != '*')) ? i+1 : i)); \
-        if ((n_found == 0) || ((*starts)[n_found-1] != val) || ((*ends)[n_found-1] != end)) { \
+        int found_index = EXIT_TOKEN; \
+        for (int index = 0; index < n_found; index++) { \
+          if ((*starts)[index] == val) { found_index = index; break; } \
+        } \
+        if (found_index != EXIT_TOKEN) { \
+          if ((*ends)[found_index] < end) { \
+            (*ends)[found_index] = end; \
+            (*lines)[found_index] = lines_read; \
+          } \
+        } else if (n_found < max_matches) { \
           (*n)++; \
           if (n_found >= s_found) { \
             if (s_found == 0) s_found = INITIAL_FOUND_SIZE; \
             else s_found = 2*s_found; \
+            if (s_found > max_matches) s_found = max_matches; \
             int * new_starts = malloc(3 * s_found * sizeof(int)); \
             if (new_starts == NULL) { \
               (*n) = REGEX_MEMORY_ERROR; \
@@ -1730,15 +1751,8 @@ void fmatcha(const char * regex, const char * path,
           (*ends)[n_found] = end; \
           (*lines)[n_found] = lines_read; \
           n_found++; \
-          if (unanchored_search && (end > val)) { \
-            for (int index = 0; index < n_tokens; index++) { \
-              active[index] = EXIT_TOKEN; \
-              incs[index] = 0; \
-              inns[index] = 0; \
-            } \
-            ics = -1; \
-            ins = -1; \
-          } \
+        } else { \
+          done = 1; \
         } \
       } else { \
         if (in_stack[dest] == 0) { \
@@ -1770,7 +1784,7 @@ void fmatcha(const char * regex, const char * path,
     // Continue popping active elements from the current stack and
     // checking them for a match and jump conditions, add next tokens
     // to the next stack.
-    while (ics >= 0) {
+    while ((ics >= 0) && (! done)) {
       // Pop next token to check from the stack.
       const int j = cstack[ics];
       ics--;
@@ -1806,6 +1820,7 @@ void fmatcha(const char * regex, const char * path,
       }
       }
     }
+    if (done) break;
     if (unanchored_search && (c != EOF) && (inns[0] == 0)) {
       for (int j = ins; j >= 0; j--) nstack[j+1] = nstack[j];
       ins++;
@@ -1857,7 +1872,7 @@ void fmatcha(const char * regex, const char * path,
     (*lines) = NULL;
   } else {
     // Re-allocate the output arrays to be the exact size of the number of matches.
-    if (n_found < s_found) {
+    if ((n_found < s_found) && (n_found > 0)) {
       s_found = n_found;
       int * new_starts = malloc(3 * s_found * sizeof(int));
       if (new_starts == NULL) {
