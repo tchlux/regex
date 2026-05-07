@@ -1480,9 +1480,14 @@ function coveringMatch(byteStart, byteEnd) {
 
 function labelsFor(text, [start, end]) {
   const map = byteMap(text);
-  const window = text.slice(map.start[start], map.end[end]);
+  const textBytes = map.byte[text.length];
+  const window = text.slice(map.start[Math.min(start, textBytes)], map.end[Math.min(end, textBytes)]);
   const labeled = engine.label(lastCompile.regex, window, { caseSensitive: true });
   if (labeled) return labeled.labels;
+  if (end > textBytes) {
+    const sentinel = engine.label(lastCompile.regex, window + " ", { caseSensitive: true });
+    if (sentinel) return sentinel.labels.slice(0, end - start);
+  }
   return Array.from({ length: end - start }, () => -1);
 }
 
@@ -1517,12 +1522,14 @@ function drawMatchView(text) {
 
 function matchChars(text, map, start, end) {
   const items = [];
-  for (let j = map.start[start]; j < map.end[end];) {
+  const textBytes = map.byte[text.length];
+  for (let j = map.start[Math.min(start, textBytes)]; j < map.end[Math.min(end, textBytes)];) {
     const char = Array.from(text.slice(j))[0];
     const b = map.byte[j], n = utf8.encode(char).length;
     items.push({ char, start: Math.max(start, b), end: Math.min(end, b + n) });
     j += char.length;
   }
+  for (let b = Math.max(start, textBytes); b < end; b++) items.push({ char: "\\0", start: b, end: b + 1 });
   return items;
 }
 
