@@ -3,13 +3,17 @@ const LABEL_NO_MATCH_ERROR = -5;
 const SET_TOKEN_BODY = 1;
 const SET_TOKEN_LAST = 2;
 const DEFAULT_GROUP_MOD = " ".charCodeAt(0);
+const WASM_VERSION = 24;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 export class RegexError extends Error {}
 
 export async function createRegex(options = {}) {
-  const { default: createWasm } = await import("./build/regex_wasm.js?v=23");
+  const { default: createWasm } = await import(`./build/regex_wasm.js?v=${WASM_VERSION}`);
+  if (!options.locateFile) {
+    options = { ...options, locateFile: path => new URL(`build/${path}?v=${WASM_VERSION}`, import.meta.url).href };
+  }
   return new Regex(await createWasm(options));
 }
 
