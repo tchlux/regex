@@ -663,6 +663,12 @@ int run_tests() {
     return(32);
   }
 
+  match("[*]", "abc*def", &start, &end);
+  if ((start != 3) || (end != 4)) {
+    printf("ERROR: Bad unanchored literal-star set match returned by match.\n");
+    return(72);
+  }
+
   match(".w", demo_corpus, &start, &end);
   if ((start != 7) || (end != 9)) {
     printf("ERROR: Bad implicit search wildcard match returned by match.\n");
@@ -883,6 +889,22 @@ int run_tests() {
   free(starts);
 
   n_matches = 0;
+  matcha("[*]", "abc*def", &n_matches, &starts, &ends);
+  if ((n_matches != 1) || (starts[0] != 3) || (ends[0] != 4)) {
+    printf("ERROR: Bad unanchored literal-star set matches returned by matcha.\n");
+    return(73);
+  }
+  free(starts);
+
+  n_matches = 0;
+  matcha("[*a]", "zzza", &n_matches, &starts, &ends);
+  if ((n_matches != 1) || (starts[0] != 3) || (ends[0] != 4)) {
+    printf("ERROR: Bad unanchored star-prefixed set matches returned by matcha.\n");
+    return(74);
+  }
+  free(starts);
+
+  n_matches = 0;
   matcha("w", demo_corpus, &n_matches, &starts, &ends);
   if ((n_matches != 2) || (starts[0] != 8) || (ends[0] != 9) ||
       (starts[1] != 207) || (ends[1] != 208)) {
@@ -1029,6 +1051,24 @@ int run_tests() {
       (lines[2] != 9)) {
     printf("ERROR: Bad literal matches returned by fmatcha.\n");
     return(23);
+  }
+  free(starts);
+
+  char * literal_star_path = "/tmp/regex_literal_star_test.txt";
+  FILE * literal_star_file = fopen(literal_star_path, "wb");
+  if (literal_star_file == NULL) {
+    printf("ERROR: Failed to create temporary literal-star test file.\n");
+    return(75);
+  }
+  fputs("abc*def", literal_star_file);
+  fclose(literal_star_file);
+
+  n_matches = 0;
+  fmatcha("[*]", literal_star_path, &n_matches, &starts, &ends, &lines, 0.5);
+  remove(literal_star_path);
+  if ((n_matches != 1) || (starts[0] != 3) || (ends[0] != 4) || (lines[0] != 1)) {
+    printf("ERROR: Bad unanchored literal-star set matches returned by fmatcha.\n");
+    return(76);
   }
   free(starts);
 

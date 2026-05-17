@@ -781,7 +781,7 @@ void match(const char * regex, const char * string, int * start, int * end) {
     free(jumps);
     return;
   }
-  const int unanchored_search = (! anchored) && (tokens[0] != '*');
+  const int unanchored_search = (! anchored) && ((tokens[0] != '*') || jumpi[0]);
   // Set all tokens to be inactive, convert ? to * for simplicity.
   active[n_tokens] = EXIT_TOKEN;
   for (int j = 0; j < n_tokens; j++) {
@@ -1351,7 +1351,7 @@ void matcha(const char * regex, const char * string,
     free(jumps);
     return;
   }
-  const int unanchored_search = (! anchored) && (tokens[0] != '*');
+  const int unanchored_search = (! anchored) && ((tokens[0] != '*') || jumpi[0]);
   // Set all tokens to be inactive, convert ? to * for simplicity.
   active[n_tokens] = EXIT_TOKEN;
   for (int j = 0; j < n_tokens; j++) {
@@ -1667,7 +1667,7 @@ void fmatcha(const char * regex, const char * path,
     fclose(file);
     return;
   }
-  const int unanchored_search = (! anchored) && (tokens[0] != '*');
+  const int unanchored_search = (! anchored) && ((tokens[0] != '*') || jumpi[0]);
   // Set all tokens to be inactive, convert ? to * for simplicity.
   active[n_tokens] = EXIT_TOKEN;
   for (int j = 0; j < n_tokens; j++) {
