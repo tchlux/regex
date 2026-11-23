@@ -37,6 +37,15 @@
 //     Set *n > 0 before calling to cap returned matches; *n <= 0 uses 1024.
 //     Caller must free "starts"; do not free "ends".
 //
+//   void matchan(regex, string, len, n, starts, ends)
+//     Bounded matcha: read at most len bytes, stopping at an earlier NUL.
+//     (size_t) len -- Maximum readable bytes; at most INT_MAX - 1.
+//     string may be NULL only when len is zero. The regex and output pointers
+//     must be non-NULL. No copy, terminator, or byte at string[len] is needed.
+//     Behaves exactly like matcha on a NUL-terminated copy of the slice.
+//     Same caps, errors, offsets, and ownership: free starts, not ends.
+//     An oversized len returns *n == REGEX_LENGTH_ERROR with NULL arrays.
+//
 //   void fmatcha(regex, path, n, starts, ends, lines, min_ascii_ratio)
 //     Find aggregate matches in a file at a given path.
 //     Set *n > 0 before calling to cap returned matches; *n <= 0 uses 1024.
@@ -51,7 +60,10 @@
 //  The "|" operator applies to the neighboring token (group) unless
 //  explicit groups are used. NUL terminates string APIs. Nullable
 //  matcha patterns may return zero-length and overlapping-looking
-//  spans. fmatcha line numbers report where the match completes.
+//  spans. Negated tokens such as "{a}" can consume the terminating NUL;
+//  their end offset can be one beyond the text length (also for matchan's
+//  virtual NUL). Clamp spans to the text length before indexing the input.
+//  fmatcha line numbers report where the match completes.
 // 
 // 
 // ERROR CODES
@@ -67,6 +79,10 @@
 //  -4   Regex error, empty group, contains "()", "[]", or "{}".
 //  -5   No exact match found by label.
 //  -6   Failed memory allocation.
+//  -7   Slice length exceeds INT_MAX - 1 (matchan only).
+//
+//  matcha/matchan return n == -6 and NULL arrays on allocation failure.
+//  On syntax errors n == -1 and the allocated arrays hold the error details.
 //
 //  fmatcha returns "n == -2" for file errors and "n == -3" when the
 //  sampled ASCII ratio is below "min_ascii_ratio".
@@ -130,6 +146,7 @@
 #define REGEX_EMPTY_GROUP_ERROR -4
 #define LABEL_NO_MATCH_ERROR -5
 #define REGEX_MEMORY_ERROR -6
+#define REGEX_LENGTH_ERROR -7
 #define REGULAR_TOKEN 0
 #define SET_TOKEN_BODY 1
 #define SET_TOKEN_LAST 2
@@ -1279,10 +1296,9 @@ int label(const char * regex, const char * string, int ** labels,
   return LABEL_NO_MATCH_ERROR;
 }
 
-// Find aggregate matches of a regular expression in a string.
-// Return arrays of the starts and ends of matches.
-void matcha(const char * regex, const char * string,
-            int * n, int ** starts, int ** ends) {
+// Shared aggregate matcher. Treat the length bound as a virtual NUL.
+static void _matcha(const char * regex, const char * string, size_t len,
+                    int * n, int ** starts, int ** ends) {
   const int max_matches = ((*n) > 0) ? (*n) : DEFAULT_MAX_MATCHES;
   const int anchored = _start_anchor(regex);
   if (anchored) regex += 3;
@@ -1366,7 +1382,7 @@ void matcha(const char * regex, const char * string,
 
   // Set the current index in the string.
   int i = 0; // current index in string
-  int c = string[i]; // get current character in string
+  int c = len ? string[0] : '\0'; // do not read an empty slice
   int ics = 0; // index in current stack
   int ins = -1; // index in next stack
   int dest; // index of next token (for jump)
@@ -1509,7 +1525,7 @@ void matcha(const char * regex, const char * string,
     // Get the next character in the string (assuming it's null terminated).
     } else {
       i++;
-      c = string[i];
+      c = (size_t) i < len ? string[i] : '\0';
     }
   } while (ics >= 0) ; // loop until the active stack is empty
   free(jumps); // free all memory that was allocated
@@ -1544,6 +1560,26 @@ void matcha(const char * regex, const char * string,
 }
 
 
+
+// Find aggregate matches in a NUL-terminated string (legacy interface).
+void matcha(const char * regex, const char * string,
+            int * n, int ** starts, int ** ends) {
+  _matcha(regex, string, (size_t) -1, n, starts, ends);
+}
+
+// Match a slice without copying or reading string[len]. An earlier NUL still
+// ends the input. Output ownership, limits and regex errors match matcha.
+// Reserve one int offset for legacy patterns that consume the virtual NUL.
+void matchan(const char * regex, const char * string, size_t len,
+             int * n, int ** starts, int ** ends) {
+  if (len > (size_t) INT_MAX - 1) {
+    *n = REGEX_LENGTH_ERROR;
+    *starts = NULL;
+    *ends = NULL;
+    return;
+  }
+  _matcha(regex, string, len, n, starts, ends);
+}
 
 // Find aggregate matches of a regular expression in a file
 // at a given path. Return arrays of the starts, ends, and line numbers.
